@@ -1,0 +1,1055 @@
+<!DOCTYPE html>  <html> <head>   <title>jexpr.js</title>   <meta http-equiv="content-type" content="text/html; charset=UTF-8">   <link rel="stylesheet" media="all" href="docco.css" /> </head> <body>   <div id="container">     <div id="background"></div>          <table cellpadding="0" cellspacing="0">       <thead>         <tr>           <th class="docs">             <h1>               jexpr.js             </h1>           </th>           <th class="code">           </th>         </tr>       </thead>       <tbody>                               <tr id="section-1">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-1">&#182;</a>               </div>               <p>Copyright (c) 2012, Srikumar K. S. (srikumarks.github.com)</p>
+
+<p>Code licensed for use and redistribution with warranties
+(or the lack thereof) as described in the MIT licence.
+License URL: http://www.opensource.org/licenses/MIT</p>             </td>             <td class="code">               <div class="highlight"><pre></pre></div>             </td>           </tr>                               <tr id="section-2">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-2">&#182;</a>               </div>               <p>This is an attempt at developing a language using JSON objects as containers
+for the AST, similar to how list expressions serve as a representation for
+ASTs in the lisp family of languages.  The key idea exploited here is that
+browser based Javascript engines such as V8 always enumerate the keys of an
+object in the same order as they were inserted.  Though this is not required
+by ECMAScript, it is considered standard behaviour in browser environments
+and in Node.js too (since it uses V8).</p>
+
+<p>The overall structure of a j-expression is like this -</p>
+
+<pre><code> {operator: [args...],
+     keyword1: value1,
+     keyword2: value2,
+     ...}
+</code></pre>
+
+<p>.. and we'll call the language "J" here for brevity.</p>
+
+<h4>Relevant posts</h4>
+
+<ol>
+<li><a href="http://srikumarks.github.com/gyan/2012/04/15/j-expressions/">J-expressions</a></li>
+<li><a href="http://srikumarks.github.com/gyan/2012/04/14/creating-dsls-in-javascript-using-j-expressions/">DSLs using JSON expressions</a></li>
+</ol>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">var</span> <span class="nx">J</span> <span class="o">=</span> <span class="p">(</span><span class="kd">function</span> <span class="p">()</span> <span class="p">{</span></pre></div>             </td>           </tr>                               <tr id="section-3">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-3">&#182;</a>               </div>               <p>We single out the first key presented in a JSON object as the name of the
+operator.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">operatorName</span><span class="p">(</span><span class="nx">obj</span><span class="p">)</span> <span class="p">{</span> 
+    <span class="k">if</span> <span class="p">(</span><span class="nx">obj</span> <span class="o">&amp;&amp;</span> <span class="nx">obj</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Object</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">for</span> <span class="p">(</span><span class="kd">var</span> <span class="nx">k</span> <span class="k">in</span> <span class="nx">obj</span><span class="p">)</span> <span class="p">{</span> 
+            <span class="k">return</span> <span class="nx">k</span><span class="p">;</span> 
+        <span class="p">}</span> 
+    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="kc">undefined</span><span class="p">;</span>
+    <span class="p">}</span>
+<span class="p">};</span></pre></div>             </td>           </tr>                               <tr id="section-4">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-4">&#182;</a>               </div>               <h2>Compilation environments</h2>             </td>             <td class="code">               <div class="highlight"><pre></pre></div>             </td>           </tr>                               <tr id="section-5">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-5">&#182;</a>               </div>               <p>We need an environment structure to remember the scope of bindings
+established as we develop the compiler and as the compiler walks through the
+AST. We start with a simple environment definition with the ability to
+construct an environment with another one as its "parent scope".</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">var</span> <span class="nx">Env</span> <span class="o">=</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">base</span><span class="p">)</span> <span class="p">{</span> 
+    <span class="k">if</span> <span class="p">(</span><span class="nx">base</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">this</span><span class="p">.</span><span class="nx">base</span> <span class="o">=</span> <span class="nx">base</span><span class="p">;</span>
+        <span class="k">this</span><span class="p">.</span><span class="nx">symbols</span> <span class="o">=</span> <span class="nb">Object</span><span class="p">.</span><span class="nx">create</span><span class="p">(</span><span class="nx">base</span><span class="p">.</span><span class="nx">symbols</span><span class="p">);</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+        <span class="k">this</span><span class="p">.</span><span class="nx">symbols</span> <span class="o">=</span> <span class="p">{};</span>
+    <span class="p">}</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-6">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-6">&#182;</a>               </div>               <p>We now start with the basic compiler that supports simple object types -
+numbers and booleans.  The compiled form of these is simply the JSON
+stringification so that we can insert them into the compiled code directly
+as literals.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">compile_lit</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span> 
+    
+    <span class="k">if</span> <span class="p">(</span><span class="nx">expr</span> <span class="o">===</span> <span class="kc">undefined</span> <span class="o">||</span> <span class="nx">expr</span> <span class="o">===</span> <span class="kc">null</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">expr</span><span class="p">);</span> 
+    <span class="p">}</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Number</span> <span class="o">||</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">==</span> <span class="nb">Boolean</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">expr</span><span class="p">);</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="kc">undefined</span><span class="p">;</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-7">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-7">&#182;</a>               </div>               <p>Strings are a bit special. We're going to need symbols in our
+language. Since JS doesn't have a separate symbol type, we'll
+just use plain strings as symbols and worry about strings later on.
+This means we're going to need a way to lookup the compile-value of a 
+symbol in an environment first. Use a namespace prefix to avoid
+touching the builtin properties.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">lookupSymbol</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">sym</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">env</span><span class="p">.</span><span class="nx">symbols</span><span class="p">[</span><span class="s1">&#39;J_&#39;</span> <span class="o">+</span> <span class="nx">sym</span><span class="p">];</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-8">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-8">&#182;</a>               </div>               <p>We now add a simple function to define new things into
+a given environment.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">define</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">name</span><span class="p">,</span> <span class="nx">value</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">env</span><span class="p">.</span><span class="nx">symbols</span><span class="p">[</span><span class="s1">&#39;J_&#39;</span> <span class="o">+</span> <span class="nx">name</span><span class="p">]</span> <span class="o">=</span> <span class="nx">value</span><span class="p">;</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-9">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-9">&#182;</a>               </div>               <p>We can now write our symbol compilation. This looks up
+the value in the environment and just returns it if found.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">compile_sym</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">sym</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">sym</span> <span class="o">&amp;&amp;</span> <span class="nx">sym</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">String</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">lookupSymbol</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">sym</span><span class="p">);</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="kc">undefined</span><span class="p">;</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-10">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-10">&#182;</a>               </div>               <p>A new "variable" in our language will be mapped to a javascript
+variable by attaching a special prefix so that the language
+cannot escape its boundaries. We also use the environment's
+"id" number in the name so that the JS variables associated
+with different environments can be told apart.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">var</span> <span class="nx">idRx</span> <span class="o">=</span> <span class="sr">/^[a-zA-Z_\$][a-zA-Z0-9_\$]*$/</span><span class="p">;</span>
+<span class="kd">function</span> <span class="nx">varname</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">sym</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">idRx</span><span class="p">.</span><span class="nx">test</span><span class="p">(</span><span class="nx">sym</span><span class="p">))</span> <span class="p">{</span>
+        <span class="k">throw</span> <span class="s2">&quot;Bad identifier!&quot;</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="s1">&#39;var$&#39;</span> <span class="o">+</span> <span class="nx">env</span><span class="p">.</span><span class="nx">id</span> <span class="o">+</span> <span class="s1">&#39;$&#39;</span> <span class="o">+</span> <span class="nx">sym</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">function</span> <span class="nx">varnames</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">syms</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">syms</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">sym</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">varname</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">sym</span><span class="p">);</span>
+    <span class="p">});</span>
+<span class="p">}</span>
+
+<span class="kd">function</span> <span class="nx">newvar</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">sym</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">define</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">sym</span><span class="p">,</span> <span class="nx">varname</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">sym</span><span class="p">));</span>
+<span class="p">}</span>
+
+<span class="kd">function</span> <span class="nx">newvars</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">syms</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">syms</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">sym</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">newvar</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">sym</span><span class="p">);</span>
+    <span class="p">});</span>
+<span class="p">};</span></pre></div>             </td>           </tr>                               <tr id="section-11">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-11">&#182;</a>               </div>               <p>Oops. We haven't defined an environment's ID. Let's patch
+Env to add that.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">patch</span><span class="p">(</span><span class="nx">oldEnv</span><span class="p">,</span> <span class="nx">change</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">function</span> <span class="nx">NewEnv</span><span class="p">(</span><span class="nx">base</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">oldEnv</span><span class="p">.</span><span class="nx">call</span><span class="p">(</span><span class="k">this</span><span class="p">,</span> <span class="nx">base</span><span class="p">);</span>
+        <span class="nx">change</span><span class="p">.</span><span class="nx">call</span><span class="p">(</span><span class="k">this</span><span class="p">,</span> <span class="nx">base</span><span class="p">);</span>
+    <span class="p">}</span>
+
+    <span class="nx">NewEnv</span><span class="p">.</span><span class="nx">prototype</span> <span class="o">=</span> <span class="nx">oldEnv</span><span class="p">.</span><span class="nx">prototype</span><span class="p">;</span>
+    <span class="k">return</span> <span class="nx">NewEnv</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kd">var</span> <span class="nx">globallyUniqueEnvID</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+<span class="nx">Env</span> <span class="o">=</span> <span class="nx">patch</span><span class="p">(</span><span class="nx">Env</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">base</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">this</span><span class="p">.</span><span class="nx">id</span> <span class="o">=</span> <span class="p">(</span><span class="nx">globallyUniqueEnvID</span><span class="o">++</span><span class="p">);</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-12">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-12">&#182;</a>               </div>               <p>Lets also add some options that we can store and
+inherit over the Env chain.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">Env</span> <span class="o">=</span> <span class="nx">patch</span><span class="p">(</span><span class="nx">Env</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">base</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">this</span><span class="p">.</span><span class="nx">options</span> <span class="o">=</span> <span class="p">(</span><span class="nx">base</span> <span class="o">?</span> <span class="nb">Object</span><span class="p">.</span><span class="nx">create</span><span class="p">(</span><span class="nx">base</span><span class="p">.</span><span class="nx">options</span><span class="p">)</span> <span class="o">:</span> <span class="p">{});</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-13">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-13">&#182;</a>               </div>               <p>We're now ready to process our first J-expression. We treat
+the first key as the symbol standing for an operator, fetch
+the function that implements the operator and just call it.
+Note that if the looked up value is a function, it is really
+a "macro" because we're writing a <em>compiler</em>. Actual value
+lookup will yield a string which we can use as a JS expression
+in the compiled result directly.
+     {operator: [arguments...], keyword1: value1, ...}</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">compile_jexpr</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">jexpr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">jexpr</span> <span class="o">&amp;&amp;</span> <span class="nx">jexpr</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Object</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kd">var</span> <span class="nx">op</span> <span class="o">=</span> <span class="nx">lookupSymbol</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">operatorName</span><span class="p">(</span><span class="nx">jexpr</span><span class="p">));</span>
+        <span class="k">if</span> <span class="p">(</span><span class="nx">op</span> <span class="o">&amp;&amp;</span> <span class="nx">op</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Function</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="nx">op</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">jexpr</span><span class="p">);</span> <span class="cm">/* We have a native implementation available.</span>
+<span class="cm">                                    * We pass the entire body of the expression</span>
+<span class="cm">                                    * to it without evaluating anything else.</span>
+<span class="cm">                                    */</span>
+        <span class="p">}</span>
+
+        <span class="k">if</span> <span class="p">(</span><span class="nx">op</span> <span class="o">&amp;&amp;</span> <span class="nx">op</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">String</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="nx">compile_apply</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">op</span><span class="p">,</span> <span class="nx">jexpr</span><span class="p">);</span> <span class="cm">/* This is an already compiled value. So just</span>
+<span class="cm">                                                   * treat it as a function and apply it.</span>
+<span class="cm">                                                   */</span>
+        <span class="p">}</span>
+
+        <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">op</span> <span class="o">&amp;&amp;</span> <span class="nx">env</span><span class="p">.</span><span class="nx">options</span><span class="p">.</span><span class="nx">unsafe</span><span class="p">)</span> <span class="p">{</span></pre></div>             </td>           </tr>                               <tr id="section-14">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-14">&#182;</a>               </div>               <p>Treat it as a globally available thingie.</p>             </td>             <td class="code">               <div class="highlight"><pre>            <span class="k">return</span> <span class="nx">compile_apply</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">operatorName</span><span class="p">(</span><span class="nx">jexpr</span><span class="p">),</span> <span class="nx">jexpr</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="kc">undefined</span><span class="p">;</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-15">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-15">&#182;</a>               </div>               <p>We now need to build our whole compilation function so
+that we can just call it to compile any j-expression
+or primitive type.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">compile_jexpr</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span>
+        <span class="o">||</span> <span class="nx">compile_sym</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span>
+        <span class="o">||</span> <span class="nx">compile_lit</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">);</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-16">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-16">&#182;</a>               </div>               <p>To help ourselves a bit, let's define a mapping utility
+that applies a two-argument "macro-like" function to
+an array of expressions.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">map</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">fn</span><span class="p">,</span> <span class="nx">exprs</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">exprs</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">fn</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">);</span>
+    <span class="p">});</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-17">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-17">&#182;</a>               </div>               <p>The "arguments" of an operator are provided as an array value.
+Each element is compiled in turn and the result used as the
+argument-list of the compiled javascript function.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">compile_args</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">argv</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">argv</span> <span class="o">&amp;&amp;</span> <span class="nx">argv</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Array</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">map</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">compile</span><span class="p">,</span> <span class="nx">argv</span><span class="p">).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">);</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span></pre></div>             </td>           </tr>                               <tr id="section-18">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-18">&#182;</a>               </div>               <p>Compile it as a single expression.</p>             </td>             <td class="code">               <div class="highlight"><pre>        <span class="k">return</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">argv</span><span class="p">);</span>
+    <span class="p">}</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-19">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-19">&#182;</a>               </div>               <p>Now we are ready to write the compile_apply, which will
+apply a compiled function by symbol reference to a given
+arguments list.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">compile_apply</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">op</span><span class="p">,</span> <span class="nx">jexpr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">op</span> <span class="o">+</span> <span class="s1">&#39;(&#39;</span> <span class="o">+</span> <span class="nx">compile_args</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">jexpr</span><span class="p">[</span><span class="nx">operatorName</span><span class="p">(</span><span class="nx">jexpr</span><span class="p">)])</span> <span class="o">+</span> <span class="s1">&#39;)&#39;</span><span class="p">;</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-20">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-20">&#182;</a>               </div>               <h2>Primitives</h2>
+
+<p>Ok, so far we have not implemented any primitives. Our first one
+is going to be a mechanism for expressions to return literal JSON
+objects. This is the analog of "quote" in Scheme and we'll use
+the succinct "$" symbol as the key of a jexpr to represent quoted
+forms. We'll insert these primitives into a "primitives" environment.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">var</span> <span class="nx">Prim</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">Env</span><span class="p">;</span>
+
+<span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;$&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">$</span><span class="p">);</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-21">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-21">&#182;</a>               </div>               <p>And now for an ultra simple "display" implementation.
+After all, how are we going to write a "hello world" program
+without this one!</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;display&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="s1">&#39;(console.log(&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">display</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;), null)&#39;</span><span class="p">;</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-22">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-22">&#182;</a>               </div>               <p>We're now ready to do a "hello world". But first some helper stuff.
+We're going to be making new environments. So let's make a helper 
+method on Env to make a new derived environment. </p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">subenv</span><span class="p">(</span><span class="nx">env</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="k">new</span> <span class="nx">Env</span><span class="p">(</span><span class="nx">env</span><span class="p">);</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-23">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-23">&#182;</a>               </div>               <p>HELLO WORLD!</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nb">eval</span><span class="p">(</span><span class="nx">compile</span><span class="p">(</span><span class="nx">subenv</span><span class="p">(</span><span class="nx">Prim</span><span class="p">),</span> <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="p">{</span><span class="nx">$</span><span class="o">:</span> <span class="s2">&quot;Hello world!&quot;</span><span class="p">}}));</span></pre></div>             </td>           </tr>                               <tr id="section-24">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-24">&#182;</a>               </div>               <p>Let's wrap that little piece of code into a "run" method
+and insert it into the environment so that programs can
+be run within environments.</p>             </td>             <td class="code">               <div class="highlight"><pre></pre></div>             </td>           </tr>                               <tr id="section-25">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-25">&#182;</a>               </div>               <p>"run" will run the expressions in a new child environment
+without affecting the target environment.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">Env</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">run</span> <span class="o">=</span> <span class="kd">function</span> <span class="p">()</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">env</span> <span class="o">=</span> <span class="nx">subenv</span><span class="p">(</span><span class="k">this</span><span class="p">);</span>
+    <span class="kd">var</span> <span class="nx">result</span><span class="p">;</span>
+    <span class="nb">Array</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">forEach</span><span class="p">.</span><span class="nx">call</span><span class="p">(</span><span class="nx">arguments</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">result</span> <span class="o">=</span> <span class="nb">eval</span><span class="p">(</span><span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">));</span>
+    <span class="p">});</span>
+    <span class="k">return</span> <span class="nx">result</span><span class="p">;</span>
+<span class="p">};</span></pre></div>             </td>           </tr>                               <tr id="section-26">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-26">&#182;</a>               </div>               <p>Now lets implement some more primitives!
+We'll do the useful "list" function which will take
+a bunch of arguments and produce an list (a JS array)
+out of them.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;list&#39;</span><span class="p">,</span> <span class="s1">&#39;(function () { return Array.prototype.slice.call(arguments, 0); })&#39;</span><span class="p">);</span></pre></div>             </td>           </tr>                               <tr id="section-27">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-27">&#182;</a>               </div>               <p>... and list length</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;length&#39;</span><span class="p">,</span> <span class="s1">&#39;(function (x) { return x.length; })&#39;</span><span class="p">);</span>
+
+<span class="nx">Prim</span><span class="p">.</span><span class="nx">run</span><span class="p">({</span><span class="nx">display</span><span class="o">:</span> <span class="p">{</span><span class="nx">length</span><span class="o">:</span> <span class="p">[{</span><span class="nx">list</span><span class="o">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">]}]}});</span></pre></div>             </td>           </tr>                               <tr id="section-28">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-28">&#182;</a>               </div>               <p>We'll also put in a macro for constructing tables.
+This has to be a macro because we're going to have
+to evaluate the value fields of the given object.</p>
+
+<pre><code> {table: {x: 2, y: {$: "why?"}}}
+</code></pre>
+
+<p>should produce what you think it should.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;table&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">keys</span> <span class="o">=</span> <span class="nb">Object</span><span class="p">.</span><span class="nx">keys</span><span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">table</span><span class="p">);</span>
+    <span class="k">return</span> <span class="s1">&#39;{&#39;</span> 
+        <span class="o">+</span> <span class="nx">keys</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">k</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">k</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;:&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">table</span><span class="p">[</span><span class="nx">k</span><span class="p">]);</span>
+          <span class="p">}).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">)</span>
+        <span class="o">+</span> <span class="s1">&#39;}&#39;</span><span class="p">;</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-29">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-29">&#182;</a>               </div>               <h3>Let there be lambda</h3>
+
+<p>Now for the BIG BOY! The syntax we use for lambda is like this -</p>
+
+<pre><code> {lambda: ["arg1", "arg2", ...],
+    body: expr|[expr1, expr2, ..., exprN]}
+</code></pre>
+
+<p>We turn that into a JS function like this -</p>
+
+<pre><code> function (arg1, arg2, ...) {
+     var keywords = this;
+     return (expr1, expr2, ... exprN);
+ }
+</code></pre>
+
+<p>We also make "this" available as the special symbol 'keywords'
+ with the intention of passing in optional arguments through 'this'.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;lambda&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">env2</span> <span class="o">=</span> <span class="nx">subenv</span><span class="p">(</span><span class="nx">env</span><span class="p">);</span>
+    <span class="k">return</span> <span class="s1">&#39;(function (&#39;</span> 
+            <span class="o">+</span> <span class="nx">newvars</span><span class="p">(</span><span class="nx">env2</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">lambda</span><span class="p">).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">)</span>
+            <span class="o">+</span> <span class="s1">&#39;) {&#39;</span>
+            <span class="o">+</span> <span class="s1">&#39;var &#39;</span> <span class="o">+</span> <span class="nx">newvar</span><span class="p">(</span><span class="nx">env2</span><span class="p">,</span> <span class="s1">&#39;keywords&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39; = this;&#39;</span>
+            <span class="o">+</span> <span class="s1">&#39;return (&#39;</span> <span class="o">+</span> <span class="nx">compile_args</span><span class="p">(</span><span class="nx">env2</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">body</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;);})&#39;</span><span class="p">;</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-30">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-30">&#182;</a>               </div>               <h3>Optional keyword arguments</h3>             </td>             <td class="code">               <div class="highlight"><pre></pre></div>             </td>           </tr>                               <tr id="section-31">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-31">&#182;</a>               </div>               <p>That was easy! ... but the lambda is unable to make
+use of optional keyword arguments yet and that would be a real waste.
+To support that, at call time, we'll pass the compiled version of
+the call expression body to the lambda as a table so that it can
+access the arguments other than the args array through the local
+"keywords" symbol. </p>             </td>             <td class="code">               <div class="highlight"><pre></pre></div>             </td>           </tr>                               <tr id="section-32">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-32">&#182;</a>               </div>               <p>First, we need to compile the entire expression as a value.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">compile_exprval</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">,</span> <span class="nx">keys</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="s1">&#39;{&#39;</span> 
+        <span class="o">+</span> <span class="nx">keys</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">k</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">k</span><span class="p">)</span> 
+                <span class="o">+</span> <span class="s1">&#39;:&#39;</span> 
+                <span class="o">+</span> <span class="p">(</span><span class="nx">compile_array</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">[</span><span class="nx">k</span><span class="p">])</span> <span class="o">||</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">[</span><span class="nx">k</span><span class="p">]));</span>
+          <span class="p">}).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">)</span> 
+        <span class="o">+</span> <span class="s1">&#39;}&#39;</span><span class="p">;</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-33">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-33">&#182;</a>               </div>               <p>Now we need to patch compile_apply to check for the presence
+of keywords and if so pass it as the "this" part of a call.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">var</span> <span class="nx">compile_apply</span> <span class="o">=</span> <span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">prevCompileApply</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">op</span><span class="p">,</span> <span class="nx">jexpr</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kd">var</span> <span class="nx">keys</span> <span class="o">=</span> <span class="nb">Object</span><span class="p">.</span><span class="nx">keys</span><span class="p">(</span><span class="nx">jexpr</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="nx">keys</span><span class="p">.</span><span class="nx">length</span> <span class="o">===</span> <span class="mi">1</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="nx">prevCompileApply</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">op</span><span class="p">,</span> <span class="nx">jexpr</span><span class="p">);</span> <span class="c1">// Avoid the overhead of a &quot;.call&quot;</span>
+        <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+            <span class="kd">var</span> <span class="nx">opname</span> <span class="o">=</span> <span class="nx">operatorName</span><span class="p">(</span><span class="nx">jexpr</span><span class="p">);</span>
+            <span class="nx">keys</span><span class="p">.</span><span class="nx">shift</span><span class="p">();</span> <span class="c1">// Drop the operator.</span>
+            <span class="k">return</span> <span class="nx">op</span> 
+                <span class="o">+</span> <span class="s1">&#39;.call(&#39;</span> 
+                <span class="o">+</span> <span class="nx">compile_exprval</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">jexpr</span><span class="p">,</span> <span class="nx">keys</span><span class="p">)</span>
+                <span class="o">+</span> <span class="s1">&#39;,&#39;</span>
+                <span class="o">+</span> <span class="nx">compile_args</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">jexpr</span><span class="p">[</span><span class="nx">opname</span><span class="p">])</span>
+                <span class="o">+</span> <span class="s1">&#39;)&#39;</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">};</span>
+<span class="p">}(</span><span class="nx">compile_apply</span><span class="p">));</span></pre></div>             </td>           </tr>                               <tr id="section-34">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-34">&#182;</a>               </div>               <p>This just compiles the parts of the array and wraps it with the
+array constructor.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">compile_array</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">arr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">arr</span> <span class="o">&amp;&amp;</span> <span class="nx">arr</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Array</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="s1">&#39;[&#39;</span> <span class="o">+</span> <span class="nx">compile_args</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">arr</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;]&#39;</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="kc">undefined</span><span class="p">;</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-35">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-35">&#182;</a>               </div>               <p>And to <em>use</em> lambda, we're going to need apply.</p>
+
+<pre><code> {apply: funval, args: listval, keywords: tableval}
+</code></pre>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;apply&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">apply</span><span class="p">)</span> 
+        <span class="o">+</span> <span class="s1">&#39;.apply(&#39;</span>
+        <span class="o">+</span> <span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">keywords</span> <span class="o">?</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">keywords</span><span class="p">)</span> <span class="o">:</span> <span class="s1">&#39;null&#39;</span><span class="p">)</span>
+        <span class="o">+</span> <span class="s1">&#39;,&#39;</span> 
+        <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">args</span><span class="p">)</span>
+        <span class="o">+</span> <span class="s1">&#39;)&#39;</span><span class="p">;</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-36">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-36">&#182;</a>               </div>               <p>Lets now try a lambda hello world.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">Prim</span><span class="p">.</span><span class="nx">run</span><span class="p">({</span><span class="nx">apply</span><span class="o">:</span> <span class="p">{</span><span class="nx">lambda</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;msg&quot;</span><span class="p">],</span>
+                    <span class="nx">body</span><span class="o">:</span> <span class="p">[</span>
+                        <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="p">{</span><span class="nx">$</span><span class="o">:</span> <span class="s2">&quot;Hello lambda world ...&quot;</span><span class="p">}},</span>
+                        <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="s2">&quot;msg&quot;</span><span class="p">},</span>
+                        <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="s2">&quot;keywords&quot;</span><span class="p">}</span>
+                    <span class="p">]},</span>
+            <span class="nx">args</span><span class="o">:</span> <span class="p">{</span><span class="nx">list</span><span class="o">:</span> <span class="p">[{</span><span class="nx">$</span><span class="o">:</span> <span class="s2">&quot;planet earth rocks!&quot;</span><span class="p">}]},</span>
+            <span class="nx">keywords</span><span class="o">:</span> <span class="p">{</span><span class="nx">table</span><span class="o">:</span> <span class="p">{</span><span class="nx">global</span><span class="o">:</span> <span class="p">{</span><span class="nx">$</span><span class="o">:</span> <span class="s2">&quot;cooling ftw!&quot;</span><span class="p">}}}});</span>
+        </pre></div>             </td>           </tr>                               <tr id="section-37">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-37">&#182;</a>               </div>               <h3>"where" clauses</h3>
+
+<p>Now let's add something "interesting" to lambda
+- a "where" clause. The idea is that whenever we have an extra
+"where: {key1: val1, key2: val2,..}" entry in a j-expression,
+we make those keys available like local variables within the
+scope of the expression. Let's generalize this feature first.</p>
+
+<p>What we do is to turn {...where: {x: val1, y: val2} ...}
+as a function wrapper like -</p>
+
+<pre><code> (function (x, y) {
+     ..expr..
+ }(val1, val2))
+</code></pre>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">whereClause</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">,</span> <span class="nx">where</span><span class="p">,</span> <span class="nx">macro</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">where</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">macro</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">);</span>
+    <span class="p">}</span>
+
+    <span class="kd">var</span> <span class="nx">whereEnv</span> <span class="o">=</span> <span class="nx">subenv</span><span class="p">(</span><span class="nx">env</span><span class="p">);</span>
+    <span class="kd">var</span> <span class="nx">whereVars</span> <span class="o">=</span> <span class="nb">Object</span><span class="p">.</span><span class="nx">keys</span><span class="p">(</span><span class="nx">where</span><span class="p">);</span>
+
+    <span class="k">return</span> <span class="s1">&#39;(function (&#39;</span> <span class="o">+</span> <span class="nx">newvars</span><span class="p">(</span><span class="nx">whereEnv</span><span class="p">,</span> <span class="nx">whereVars</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;) {&#39;</span>
+        <span class="o">+</span> <span class="s1">&#39;return (&#39;</span> <span class="o">+</span> <span class="nx">macro</span><span class="p">(</span><span class="nx">whereEnv</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;);}&#39;</span>
+        <span class="o">+</span> <span class="s1">&#39;(&#39;</span> 
+        <span class="o">+</span> <span class="nx">whereVars</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">v</span><span class="p">)</span> <span class="p">{</span> 
+            <span class="k">return</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">where</span><span class="p">[</span><span class="nx">v</span><span class="p">]);</span> 
+          <span class="p">}).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">)</span> 
+        <span class="o">+</span> <span class="s1">&#39;))&#39;</span><span class="p">;</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-38">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-38">&#182;</a>               </div>               <p>Now we can add where clause support to lambda.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;lambda&#39;</span><span class="p">,</span> <span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">oldLambda</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">whereClause</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">where</span><span class="p">,</span> <span class="nx">oldLambda</span><span class="p">);</span>
+    <span class="p">};</span>
+<span class="p">}(</span><span class="nx">lookupSymbol</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;lambda&#39;</span><span class="p">))));</span></pre></div>             </td>           </tr>                               <tr id="section-39">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-39">&#182;</a>               </div>               <h3>Macros</h3>
+
+<p>Now we up the game a bit and define the ability to
+write macros. We've already been writing macros,
+so we just need to expose that bit of functionality
+to the language itself. Macros are just lambdas that
+take the entire expression as a single argument
+and return an expression to be used instead.</p>
+
+<pre><code> {macro: "name",
+     lambda: ["expr"],
+     body: ...,
+     where: ...}
+</code></pre>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;macro&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">macrodefn</span> <span class="o">=</span> <span class="nb">eval</span><span class="p">(</span><span class="nx">lookupSymbol</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="s1">&#39;lambda&#39;</span><span class="p">)(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">));</span>
+    <span class="nx">define</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">macro</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">macrodefn</span><span class="p">(</span><span class="nx">expr</span><span class="p">));</span>
+    <span class="p">});</span>
+    <span class="k">return</span> <span class="s1">&#39;undefined&#39;</span><span class="p">;</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-40">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-40">&#182;</a>               </div>               <p>Woot! We have macros! ... but we can't even write a hello world
+with macros now because we don't have a proper way to construct object
+literals in our language. We can use 'list' and 'table', but yuck!
+we need a quasiquoter!</p>
+
+<pre><code> {$_: &lt;quoted&gt; {_$: &lt;unquoted&gt;} ...}
+</code></pre>
+
+<p>We first write a "$_" macro that will quasi quote. We make the
+unquoting mechanism generic by putting a table of unquoters for
+the quasi quoter to look for, right into the environment.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">AddUnquoters</span><span class="p">(</span><span class="nx">base</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">this</span><span class="p">.</span><span class="nx">unquoters</span> <span class="o">=</span> <span class="nx">base</span> <span class="o">?</span> <span class="nb">Object</span><span class="p">.</span><span class="nx">create</span><span class="p">(</span><span class="nx">base</span><span class="p">.</span><span class="nx">unquoters</span><span class="p">)</span> <span class="o">:</span> <span class="p">{};</span>
+<span class="p">}</span>
+<span class="nx">Env</span> <span class="o">=</span> <span class="nx">patch</span><span class="p">(</span><span class="nx">Env</span><span class="p">,</span> <span class="nx">AddUnquoters</span><span class="p">);</span>
+<span class="nx">AddUnquoters</span><span class="p">.</span><span class="nx">call</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="nx">Prim</span><span class="p">.</span><span class="nx">base</span><span class="p">);</span>
+
+<span class="kd">function</span> <span class="nx">quasiQuote</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">expr</span> <span class="o">&amp;&amp;</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Array</span><span class="p">)</span> <span class="p">{</span> <span class="c1">// Array literal.</span>
+        <span class="k">return</span> <span class="s1">&#39;[&#39;</span> 
+            <span class="o">+</span> <span class="nx">map</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">quasiQuote</span><span class="p">,</span> <span class="nx">expr</span><span class="p">).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">)</span>
+            <span class="o">+</span> <span class="s1">&#39;]&#39;</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="nx">expr</span> <span class="o">&amp;&amp;</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Object</span><span class="p">)</span> <span class="p">{</span> <span class="c1">// Object literal ... </span>
+        <span class="kd">var</span> <span class="nx">unquoter</span> <span class="o">=</span> <span class="nx">env</span><span class="p">.</span><span class="nx">unquoters</span><span class="p">[</span><span class="nx">operatorName</span><span class="p">(</span><span class="nx">expr</span><span class="p">)];</span>
+        <span class="k">if</span> <span class="p">(</span><span class="nx">unquoter</span><span class="p">)</span> <span class="p">{</span> <span class="c1">// ... but maybe an unquoter here?</span>
+            <span class="k">return</span> <span class="nx">unquoter</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">);</span>
+        <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="s1">&#39;{&#39;</span> 
+                <span class="o">+</span> <span class="nb">Object</span><span class="p">.</span><span class="nx">keys</span><span class="p">(</span><span class="nx">expr</span><span class="p">).</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">k</span><span class="p">)</span> <span class="p">{</span>
+                    <span class="k">return</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">k</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;:&#39;</span> <span class="o">+</span> <span class="nx">quasiQuote</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">[</span><span class="nx">k</span><span class="p">]);</span>
+                  <span class="p">}).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">)</span>
+                <span class="o">+</span> <span class="s1">&#39;}&#39;</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">expr</span><span class="p">);</span> <span class="c1">// else literal.</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-41">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-41">&#182;</a>               </div>               <p>Quasiquote operator</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;$_&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">quasiQuote</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">$_</span><span class="p">);</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-42">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-42">&#182;</a>               </div>               <p>Now we add one unquoter '_$'.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">Prim</span><span class="p">.</span><span class="nx">unquoters</span><span class="p">[</span><span class="s1">&#39;_$&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">_$</span><span class="p">);</span>
+<span class="p">};</span></pre></div>             </td>           </tr>                               <tr id="section-43">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-43">&#182;</a>               </div>               <p>Unquote splice is simple enough as well.
+Beware that it can only be used sensibly 
+when expanding arrays.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">Prim</span><span class="p">.</span><span class="nx">unquoters</span><span class="p">[</span><span class="s1">&#39;_$$&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">compile_args</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">_$$</span><span class="p">);</span>
+<span class="p">};</span></pre></div>             </td>           </tr>                               <tr id="section-44">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-44">&#182;</a>               </div>               <p>Hooray! We can now do a macro hello world!</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">Prim</span><span class="p">.</span><span class="nx">run</span><span class="p">({</span><span class="nx">macro</span><span class="o">:</span> <span class="s2">&quot;hello&quot;</span><span class="p">,</span>
+    <span class="nx">lambda</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;expr&quot;</span><span class="p">],</span>
+    <span class="nx">body</span><span class="o">:</span> <span class="p">[{</span><span class="nx">$_</span><span class="o">:</span> <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="p">{</span><span class="nx">$</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;In macro!&quot;</span><span class="p">,</span> <span class="p">{</span><span class="nx">_$$</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;meow&quot;</span><span class="p">,</span> <span class="s2">&quot;expr&quot;</span><span class="p">]}]}}}],</span>
+    <span class="nx">where</span><span class="o">:</span> <span class="p">{</span><span class="nx">meow</span><span class="o">:</span> <span class="p">{</span><span class="nx">$</span><span class="o">:</span> <span class="s2">&quot;bowow&quot;</span><span class="p">}}</span>
+<span class="p">},</span>
+<span class="p">{</span><span class="nx">hello</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;macro&quot;</span><span class="p">,</span> <span class="s2">&quot;world!&quot;</span><span class="p">]});</span></pre></div>             </td>           </tr>                               <tr id="section-45">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-45">&#182;</a>               </div>               <h2>Going to town!</h2>
+
+<p>Now we go to town and add all sorts of bells and whistles.</p>             </td>             <td class="code">               <div class="highlight"><pre></pre></div>             </td>           </tr>                               <tr id="section-46">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-46">&#182;</a>               </div>               <h3>let:in:</h3>
+
+<p>First up is a variant on the "where" clause - the "let:in:".</p>
+
+<pre><code> {let: {x: blah, y: bling}, in: expr|[expr1, expr2, ...]}
+</code></pre>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;let&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">whereClause</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">let</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">envw</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">compile_args</span><span class="p">(</span><span class="nx">envw</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="k">in</span><span class="p">);</span>
+    <span class="p">});</span>
+<span class="p">});</span>
+
+<span class="nx">Prim</span><span class="p">.</span><span class="nx">run</span><span class="p">({</span><span class="nx">let</span><span class="o">:</span> <span class="p">{</span><span class="nx">msg</span><span class="o">:</span> <span class="p">{</span><span class="nx">$</span><span class="o">:</span> <span class="s2">&quot;hello&quot;</span><span class="p">}},</span> 
+    <span class="k">in</span><span class="o">:</span> <span class="p">[{</span><span class="nx">display</span><span class="o">:</span> <span class="p">{</span><span class="nx">$_</span><span class="o">:</span> <span class="p">[{</span><span class="nx">_$</span><span class="o">:</span> <span class="s2">&quot;msg&quot;</span><span class="p">},</span> <span class="s2">&quot;let world&quot;</span><span class="p">]}}]});</span></pre></div>             </td>           </tr>                               <tr id="section-47">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-47">&#182;</a>               </div>               <h3>if:then:else:</h3>
+
+<p>{if: cond, then: expr1, else: expr2}</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;if&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="s1">&#39;(&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="k">if</span><span class="p">)</span> 
+        <span class="o">+</span> <span class="s1">&#39;?&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">then</span><span class="p">)</span>
+        <span class="o">+</span> <span class="s1">&#39;:&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="k">else</span><span class="p">)</span>
+        <span class="o">+</span> <span class="s1">&#39;)&#39;</span><span class="p">;</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-48">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-48">&#182;</a>               </div>               <h3>Generators</h3>
+
+<p>Since JS doesn't support tail call elimination, we need some
+way to loop. For that, it is useful to have generators like
+in python - basically functions that you can call repeatedly 
+to get a sequence of values. Our protocol will be that the
+generator is considered to end when the function returns
+'undefined', and we can pass in a bool value of 'true' to
+reset the generator.</p>             </td>             <td class="code">               <div class="highlight"><pre></pre></div>             </td>           </tr>                               <tr id="section-49">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-49">&#182;</a>               </div>               <p>{from: ix1, to: ix2, step: dix}
+Usual defaults apply.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;from&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">body</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">function</span> <span class="nx">iterator</span><span class="p">(</span><span class="nx">comp</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="s1">&#39;(function (reset) {&#39;</span>
+            <span class="o">+</span> <span class="s1">&#39;if (reset) {i = from + step; return from;}\n&#39;</span>
+            <span class="o">+</span> <span class="s1">&#39;var result = i;&#39;</span>
+            <span class="o">+</span> <span class="s1">&#39;return (i &#39;</span> <span class="o">+</span> <span class="nx">comp</span> <span class="o">+</span> <span class="s1">&#39; to ? ((i += step), result) : undefined);})&#39;</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="s1">&#39;((function (from, to, step) {var i = from; &#39;</span>
+        <span class="o">+</span> <span class="s1">&#39;if (to === undefined) {&#39;</span>
+        <span class="o">+</span>    <span class="s1">&#39;to = from + step * 1e16;&#39;</span>
+        <span class="o">+</span> <span class="s1">&#39;}\n&#39;</span>
+        <span class="o">+</span> <span class="s1">&#39;return (step &gt; 0 ?&#39;</span> <span class="o">+</span> <span class="nx">iterator</span><span class="p">(</span><span class="s1">&#39;&lt;&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;:&#39;</span> <span class="o">+</span> <span class="nx">iterator</span><span class="p">(</span><span class="s1">&#39;&gt;&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;);})(&#39;</span>
+        <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">body</span><span class="p">.</span><span class="nx">from</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;,&#39;</span>
+        <span class="o">+</span> <span class="p">(</span><span class="nx">body</span><span class="p">.</span><span class="nx">to</span> <span class="o">?</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">body</span><span class="p">.</span><span class="nx">to</span><span class="p">)</span> <span class="o">:</span> <span class="s1">&#39;undefined&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;,&#39;</span>
+        <span class="o">+</span> <span class="p">(</span><span class="nx">body</span><span class="p">.</span><span class="nx">step</span> <span class="o">?</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">body</span><span class="p">.</span><span class="nx">step</span><span class="p">)</span> <span class="o">:</span> <span class="s1">&#39;1&#39;</span><span class="p">)</span>
+        <span class="o">+</span> <span class="s1">&#39;))&#39;</span><span class="p">;</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-50">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-50">&#182;</a>               </div>               <p>{in: list, from: ix1, to: ix2, step: dix}
+Similar to from: but steps through array.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;in&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">body</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">function</span> <span class="nx">iterator</span><span class="p">(</span><span class="nx">comp</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="s1">&#39;(function (reset) {&#39;</span>
+            <span class="o">+</span> <span class="s1">&#39;if (reset) {i = from + step; return arr[from];}\n&#39;</span>
+            <span class="o">+</span> <span class="s1">&#39;var result = arr[i];&#39;</span>
+            <span class="o">+</span> <span class="s1">&#39;return (i &#39;</span> <span class="o">+</span> <span class="nx">comp</span> <span class="o">+</span> <span class="s1">&#39; to ? ((i += step), result) : undefined);})&#39;</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">return</span> <span class="s1">&#39;((function (arr, from, to, step) {var i = from; &#39;</span>
+        <span class="o">+</span> <span class="s1">&#39;if (to === undefined) {&#39;</span>
+        <span class="o">+</span>    <span class="s1">&#39;to = (step &gt; 0 ? arr.length : -1);&#39;</span>
+        <span class="o">+</span> <span class="s1">&#39;}\n&#39;</span>
+        <span class="o">+</span> <span class="s1">&#39;return (step &gt; 0 ?&#39;</span> <span class="o">+</span> <span class="nx">iterator</span><span class="p">(</span><span class="s1">&#39;&lt;&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;:&#39;</span> <span class="o">+</span> <span class="nx">iterator</span><span class="p">(</span><span class="s1">&#39;&gt;&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;);})(&#39;</span>
+        <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">body</span><span class="p">.</span><span class="k">in</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;,&#39;</span>
+        <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">body</span><span class="p">.</span><span class="nx">from</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;,&#39;</span>
+        <span class="o">+</span> <span class="p">(</span><span class="nx">body</span><span class="p">.</span><span class="nx">to</span> <span class="o">?</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">body</span><span class="p">.</span><span class="nx">to</span><span class="p">)</span> <span class="o">:</span> <span class="s1">&#39;undefined&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;,&#39;</span>
+        <span class="o">+</span> <span class="p">(</span><span class="nx">body</span><span class="p">.</span><span class="nx">step</span> <span class="o">?</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">body</span><span class="p">.</span><span class="nx">step</span><span class="p">)</span> <span class="o">:</span> <span class="s1">&#39;1&#39;</span><span class="p">)</span>
+        <span class="o">+</span> <span class="s1">&#39;))&#39;</span><span class="p">;</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-51">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-51">&#182;</a>               </div>               <h3>Looping using for:</h3>
+
+<pre><code> {for: {x: gen1, y: gen2,...}, 
+     when: cond, 
+     expr: value|[expr1, expr2, ...], 
+     where: {...}}
+ {for: {x: gen1, y: gen2,...}, 
+     when: cond, 
+     body: stmt|[stmt1, stmt2,...], 
+     where: {...}}
+</code></pre>
+
+<p>The "expr" version produces an array with those values,
+whereas the "body" version is for side effects only.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;for&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">whereClause</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">where</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kd">var</span> <span class="nx">env2</span> <span class="o">=</span> <span class="nx">subenv</span><span class="p">(</span><span class="nx">env</span><span class="p">);</span>
+        <span class="kd">var</span> <span class="nx">envb</span> <span class="o">=</span> <span class="nx">subenv</span><span class="p">(</span><span class="nx">env2</span><span class="p">);</span>
+        <span class="kd">var</span> <span class="nx">iters</span> <span class="o">=</span> <span class="nb">Object</span><span class="p">.</span><span class="nx">keys</span><span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="k">for</span><span class="p">);</span>
+        <span class="k">return</span> <span class="s1">&#39;(function () {&#39;</span>
+            <span class="o">+</span> <span class="nx">iters</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">ivar</span><span class="p">)</span> <span class="p">{</span>
+                <span class="kd">var</span> <span class="nx">v</span> <span class="o">=</span> <span class="nx">newvar</span><span class="p">(</span><span class="nx">env2</span><span class="p">,</span> <span class="nx">ivar</span><span class="p">);</span>
+                <span class="kd">var</span> <span class="nx">gen_v</span> <span class="o">=</span> <span class="s1">&#39;gen_&#39;</span> <span class="o">+</span> <span class="nx">v</span><span class="p">;</span> <span class="cm">/* Use an extra &quot;gen_&quot; prefix </span>
+<span class="cm">                                         * for variables that hold</span>
+<span class="cm">                                         * generators. </span>
+<span class="cm">                                         */</span>
+
+                <span class="k">return</span> <span class="s1">&#39;var &#39;</span> <span class="o">+</span> <span class="nx">v</span> <span class="o">+</span> <span class="s1">&#39;, &#39;</span> <span class="o">+</span> <span class="nx">gen_v</span> <span class="o">+</span> <span class="s1">&#39; = &#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env2</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="k">for</span><span class="p">[</span><span class="nx">ivar</span><span class="p">])</span> <span class="o">+</span> <span class="s1">&#39;;&#39;</span><span class="p">;</span>
+              <span class="p">}).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;&#39;</span><span class="p">)</span>
+            <span class="o">+</span> <span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">expr</span> <span class="o">?</span> <span class="s1">&#39;var __result = [];&#39;</span> <span class="o">:</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
+            <span class="o">+</span> <span class="p">(</span><span class="s1">&#39;\nfunction __body(&#39;</span>
+                    <span class="o">+</span> <span class="nx">newvars</span><span class="p">(</span><span class="nx">envb</span><span class="p">,</span> <span class="nx">iters</span><span class="p">).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">)</span>
+                    <span class="o">+</span> <span class="s1">&#39;) {&#39;</span>
+                    <span class="o">+</span> <span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">expr</span> 
+                        <span class="o">?</span> <span class="p">(</span><span class="s1">&#39;__result.push((&#39;</span> <span class="o">+</span> <span class="nx">compile_args</span><span class="p">(</span><span class="nx">envb</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">expr</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;));&#39;</span><span class="p">)</span>
+                        <span class="o">:</span> <span class="p">(</span><span class="s1">&#39;(&#39;</span> <span class="o">+</span> <span class="nx">compile_args</span><span class="p">(</span><span class="nx">envb</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">body</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;)&#39;</span><span class="p">))</span>
+                    <span class="o">+</span> <span class="s1">&#39;}\n&#39;</span><span class="p">)</span>
+            <span class="o">+</span> <span class="nx">iters</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">ivar</span><span class="p">)</span> <span class="p">{</span>
+                <span class="kd">var</span> <span class="nx">v</span> <span class="o">=</span> <span class="nx">varname</span><span class="p">(</span><span class="nx">env2</span><span class="p">,</span> <span class="nx">ivar</span><span class="p">);</span>
+                <span class="kd">var</span> <span class="nx">gen_v</span> <span class="o">=</span> <span class="s1">&#39;gen_&#39;</span> <span class="o">+</span> <span class="nx">v</span><span class="p">;</span>
+                <span class="k">return</span> <span class="s1">&#39;\nfor(&#39;</span> <span class="o">+</span> <span class="nx">v</span> <span class="o">+</span> <span class="s1">&#39; = &#39;</span> <span class="o">+</span> <span class="nx">gen_v</span> <span class="o">+</span> <span class="s1">&#39;(true);&#39;</span>
+                    <span class="o">+</span> <span class="nx">v</span> <span class="o">+</span> <span class="s1">&#39; !== undefined; &#39;</span>
+                    <span class="o">+</span> <span class="nx">v</span> <span class="o">+</span> <span class="s1">&#39; = &#39;</span> <span class="o">+</span> <span class="nx">gen_v</span> <span class="o">+</span> <span class="s1">&#39;()) {&#39;</span><span class="p">;</span>
+              <span class="p">}).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;&#39;</span><span class="p">)</span>
+            <span class="o">+</span> <span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">when</span> 
+                    <span class="o">?</span> <span class="p">(</span><span class="s1">&#39;if (&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env2</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">when</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;) {&#39;</span><span class="p">)</span>
+                    <span class="o">:</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
+            <span class="o">+</span> <span class="p">(</span><span class="s1">&#39;__body(&#39;</span> <span class="o">+</span> <span class="nx">varnames</span><span class="p">(</span><span class="nx">env2</span><span class="p">,</span> <span class="nx">iters</span><span class="p">).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;);&#39;</span><span class="p">)</span>
+            <span class="o">+</span> <span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">when</span> <span class="o">?</span> <span class="s1">&#39;}&#39;</span> <span class="o">:</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
+            <span class="o">+</span> <span class="nx">iters</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">ivar</span><span class="p">)</span> <span class="p">{</span> <span class="k">return</span> <span class="s1">&#39;\n}&#39;</span><span class="p">;</span> <span class="p">}).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;&#39;</span><span class="p">)</span>
+            <span class="o">+</span> <span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">expr</span> <span class="o">?</span> <span class="s1">&#39;\nreturn __result;&#39;</span> <span class="o">:</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
+            <span class="o">+</span> <span class="s1">&#39;}())&#39;</span><span class="p">;</span>
+    <span class="p">});</span>
+<span class="p">});</span>
+
+<span class="nx">Prim</span><span class="p">.</span><span class="nx">run</span><span class="p">({</span><span class="k">for</span><span class="o">:</span> <span class="p">{</span><span class="nx">x</span><span class="o">:</span> <span class="p">{</span><span class="nx">from</span><span class="o">:</span> <span class="mi">1</span><span class="p">,</span> <span class="nx">to</span><span class="o">:</span> <span class="mi">4</span><span class="p">},</span> 
+                <span class="nx">y</span><span class="o">:</span> <span class="p">{</span><span class="nx">from</span><span class="o">:</span> <span class="mi">100</span><span class="p">,</span> <span class="nx">to</span><span class="o">:</span> <span class="mi">104</span><span class="p">}},</span> 
+    <span class="nx">body</span><span class="o">:</span> <span class="p">[{</span><span class="nx">display</span><span class="o">:</span> <span class="p">{</span><span class="nx">$_</span><span class="o">:</span> <span class="p">[{</span><span class="nx">_$</span><span class="o">:</span> <span class="s2">&quot;x&quot;</span><span class="p">},</span> <span class="p">{</span><span class="nx">_$</span><span class="o">:</span> <span class="s2">&quot;y&quot;</span><span class="p">}]}}]});</span></pre></div>             </td>           </tr>                               <tr id="section-52">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-52">&#182;</a>               </div>               <h3>Let's support some math as well.</h3>
+
+<p>{expr: "x + y", where: {x: val1, y: val2}}
+The expression can only see the variables in the where clause.
+UNSAFE!</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;expr&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">env</span><span class="p">.</span><span class="nx">options</span><span class="p">.</span><span class="nx">unsafe</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">throw</span> <span class="s2">&quot;Unsafe expression! &quot;</span> <span class="o">+</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">expr</span><span class="p">);</span>
+    <span class="p">}</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">where</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kd">var</span> <span class="nx">vars</span> <span class="o">=</span> <span class="nb">Object</span><span class="p">.</span><span class="nx">keys</span><span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">where</span><span class="p">);</span>
+        <span class="k">return</span> <span class="s1">&#39;(function (&#39;</span> <span class="o">+</span> <span class="nx">vars</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;) {&#39;</span>
+            <span class="o">+</span> <span class="s1">&#39;return (&#39;</span> <span class="o">+</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">expr</span> <span class="o">+</span> <span class="s1">&#39;);}&#39;</span>
+        <span class="o">+</span> <span class="s1">&#39;(&#39;</span> 
+        <span class="o">+</span> <span class="nx">vars</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">v</span><span class="p">)</span> <span class="p">{</span> <span class="k">return</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">where</span><span class="p">[</span><span class="nx">v</span><span class="p">]);</span> <span class="p">}).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">)</span>
+        <span class="o">+</span> <span class="s1">&#39;))&#39;</span><span class="p">;</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="s1">&#39;(&#39;</span> <span class="o">+</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">expr</span> <span class="o">+</span> <span class="s1">&#39;)&#39;</span><span class="p">;</span>
+    <span class="p">}</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-53">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-53">&#182;</a>               </div>               <h3>Some higher order functions?</h3>             </td>             <td class="code">               <div class="highlight"><pre></pre></div>             </td>           </tr>                               <tr id="section-54">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-54">&#182;</a>               </div>               <p>{map: fn, list: listval}</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;map&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="s1">&#39;(&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">list</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;.map(&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">map</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;))&#39;</span><span class="p">;</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-55">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-55">&#182;</a>               </div>               <p>{reduce: fn, list: listval, init: value}</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;reduce&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="s1">&#39;(&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">list</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;.reduce(&#39;</span> 
+            <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">reduce</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;, &#39;</span>
+            <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">init</span><span class="p">)</span>
+            <span class="o">+</span> <span class="s1">&#39;))&#39;</span><span class="p">;</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-56">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-56">&#182;</a>               </div>               <p>{filter: fn, list: listval}</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;filter&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="s1">&#39;(&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">list</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;.filter(&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">filter</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;))&#39;</span><span class="p">;</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-57">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-57">&#182;</a>               </div>               <h3>Dot notation</h3>
+
+<p>It is useful to refer to object parts directly using
+the dot notation. Just change lookupSymbol to directly
+support it.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">lookupSymbol</span> <span class="o">=</span> <span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">lookup</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">forbiddenProperties</span> <span class="o">=</span> <span class="p">{};</span>
+    <span class="k">return</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">sym</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kd">var</span> <span class="nx">parts</span> <span class="o">=</span> <span class="nx">sym</span><span class="p">.</span><span class="nx">split</span><span class="p">(</span><span class="s1">&#39;.&#39;</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="nx">parts</span><span class="p">.</span><span class="nx">length</span> <span class="o">===</span> <span class="mi">1</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="nx">lookup</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">sym</span><span class="p">);</span>
+        <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+            <span class="nx">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="nx">lookup</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span>
+            <span class="nx">parts</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">p</span><span class="p">,</span><span class="nx">i</span><span class="p">)</span> <span class="p">{</span>
+                <span class="k">if</span> <span class="p">(</span><span class="nx">i</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+                    <span class="k">if</span> <span class="p">(</span><span class="nx">forbiddenProperties</span><span class="p">[</span><span class="nx">p</span><span class="p">])</span> <span class="p">{</span>
+                        <span class="k">throw</span> <span class="s2">&quot;Forbidden javascript property &#39;&quot;</span> <span class="o">+</span> <span class="nx">p</span> <span class="o">+</span> <span class="s2">&quot;&#39; accessed!&quot;</span><span class="p">;</span>
+                    <span class="p">}</span>
+                <span class="p">}</span>
+            <span class="p">});</span>
+            <span class="k">if</span> <span class="p">(</span><span class="nx">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="p">{</span>
+                <span class="k">return</span> <span class="nx">parts</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;.&#39;</span><span class="p">);</span>
+            <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+                <span class="k">return</span> <span class="kc">undefined</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">};</span>
+<span class="p">}(</span><span class="nx">lookupSymbol</span><span class="p">));</span>
+
+<span class="nx">Prim</span><span class="p">.</span><span class="nx">run</span><span class="p">({</span><span class="nx">let</span><span class="o">:</span> <span class="p">{</span><span class="nx">x</span><span class="o">:</span> <span class="p">{</span><span class="nx">table</span><span class="o">:</span> <span class="p">{</span><span class="nx">cat</span><span class="o">:</span> <span class="p">{</span><span class="nx">$</span><span class="o">:</span> <span class="s2">&quot;meow&quot;</span><span class="p">}}}},</span>
+            <span class="k">in</span><span class="o">:</span> <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="s2">&quot;x.cat&quot;</span><span class="p">}});</span></pre></div>             </td>           </tr>                               <tr id="section-58">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-58">&#182;</a>               </div>               <p>Try the lambda example again with dot notation access.
+Lets now try a lambda hello world.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">Prim</span><span class="p">.</span><span class="nx">run</span><span class="p">({</span><span class="nx">let</span><span class="o">:</span> <span class="p">{</span><span class="nx">greet</span><span class="o">:</span> <span class="p">{</span><span class="nx">lambda</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;msg&quot;</span><span class="p">],</span>
+                            <span class="nx">body</span><span class="o">:</span> <span class="p">[</span>
+                                <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="p">{</span><span class="nx">$</span><span class="o">:</span> <span class="s2">&quot;Hello lambda world ...&quot;</span><span class="p">}},</span>
+                                <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="s2">&quot;msg&quot;</span><span class="p">},</span>
+                                <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="s2">&quot;keywords.lockword&quot;</span><span class="p">}</span>
+                            <span class="p">]}},</span>
+            <span class="k">in</span><span class="o">:</span> <span class="p">[{</span><span class="nx">greet</span><span class="o">:</span> <span class="p">[{</span><span class="nx">$</span><span class="o">:</span> <span class="s2">&quot;Planet earth rocks!&quot;</span><span class="p">}],</span> 
+                    <span class="nx">lockword</span><span class="o">:</span> <span class="p">{</span><span class="nx">$</span><span class="o">:</span> <span class="s2">&quot;haha!&quot;</span><span class="p">}}]});</span></pre></div>             </td>           </tr>                               <tr id="section-59">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-59">&#182;</a>               </div>               <h2>Defines and blocks</h2>
+
+<p>It will certainly be convenient to be able to write do blocks
+for walking through steps and introduce definitions along the way,
+process them etc. A simple macro for that would work on --</p>
+
+<pre><code> {do: [stmt1, stmt2, ...],
+     where: {...}}
+</code></pre>
+
+<p>and allow define statements in the mix, like this -</p>
+
+<pre><code> {define: {name1: value1, name2, value2,...}}
+</code></pre>
+
+<p>We translate such a "do" block into a 
+     (function () {...}())
+form.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;do&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">whereClause</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">where</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kd">var</span> <span class="nx">result</span> <span class="o">=</span> <span class="s1">&#39;(function () {&#39;</span><span class="p">;</span>
+        <span class="nx">expr</span><span class="p">.</span><span class="k">do</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">stmt</span><span class="p">,</span> <span class="nx">i</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">if</span> <span class="p">(</span><span class="nx">stmt</span> <span class="o">&amp;&amp;</span> <span class="nx">operatorName</span><span class="p">(</span><span class="nx">stmt</span><span class="p">)</span> <span class="o">===</span> <span class="s1">&#39;define&#39;</span><span class="p">)</span> <span class="p">{</span>
+                <span class="nx">env</span> <span class="o">=</span> <span class="nx">subenv</span><span class="p">(</span><span class="nx">env</span><span class="p">);</span> <span class="cm">/* It is a define statement. Make a new environment.</span>
+<span class="cm">                                    * This is an important step to ensure that new</span>
+<span class="cm">                                    * definitions don&#39;t override older ones.</span>
+<span class="cm">                                    */</span>
+
+                <span class="nb">Object</span><span class="p">.</span><span class="nx">keys</span><span class="p">(</span><span class="nx">stmt</span><span class="p">.</span><span class="nx">define</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">varname</span><span class="p">)</span> <span class="p">{</span>
+                    <span class="nx">result</span> <span class="o">+=</span> <span class="s1">&#39;var &#39;</span> <span class="o">+</span> <span class="nx">newvar</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">varname</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39; = &#39;</span><span class="p">;</span>
+                    <span class="nx">result</span> <span class="o">+=</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">stmt</span><span class="p">.</span><span class="nx">define</span><span class="p">[</span><span class="nx">varname</span><span class="p">])</span> <span class="o">+</span> <span class="s1">&#39;;&#39;</span><span class="p">;</span>
+                <span class="p">});</span>
+            <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+                <span class="nx">result</span> <span class="o">+=</span> <span class="p">(</span><span class="nx">i</span><span class="o">+</span><span class="mi">1</span> <span class="o">&lt;</span> <span class="nx">expr</span><span class="p">.</span><span class="k">do</span><span class="p">.</span><span class="nx">length</span> <span class="o">?</span> <span class="s1">&#39;&#39;</span> <span class="o">:</span> <span class="s1">&#39;return &#39;</span><span class="p">)</span>
+                    <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">stmt</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;;&#39;</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">});</span>
+        <span class="k">return</span> <span class="nx">result</span> <span class="o">+</span> <span class="s1">&#39;}())&#39;</span><span class="p">;</span>
+    <span class="p">});</span>
+<span class="p">});</span>
+
+<span class="nx">Prim</span><span class="p">.</span><span class="nx">run</span><span class="p">({</span><span class="k">do</span><span class="o">:</span> <span class="p">[</span>
+    <span class="p">{</span><span class="nx">define</span><span class="o">:</span> <span class="p">{</span><span class="nx">x</span><span class="o">:</span> <span class="mi">5</span><span class="p">}},</span>
+    <span class="p">{</span><span class="nx">define</span><span class="o">:</span> <span class="p">{</span><span class="nx">fn</span><span class="o">:</span> <span class="p">{</span><span class="nx">lambda</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">],</span> <span class="nx">body</span><span class="o">:</span> <span class="p">[{</span><span class="nx">table</span><span class="o">:</span> <span class="p">{</span><span class="nx">x</span><span class="o">:</span> <span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="nx">y</span><span class="o">:</span> <span class="s2">&quot;y&quot;</span><span class="p">}}]}}},</span>
+    <span class="p">{</span><span class="nx">define</span><span class="o">:</span> <span class="p">{</span><span class="nx">x</span><span class="o">:</span> <span class="mi">10</span><span class="p">}},</span>
+    <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="p">{</span><span class="nx">fn</span><span class="o">:</span> <span class="p">[</span><span class="mi">10</span><span class="p">]}},</span>
+    <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="s2">&quot;x&quot;</span><span class="p">}</span>
+<span class="p">]});</span></pre></div>             </td>           </tr>                               <tr id="section-60">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-60">&#182;</a>               </div>               <h3>Accessors</h3>
+
+<p>We don't have any accessor functions for working with 
+object and array properties yet. Let's add a general purpose
+"get" and "put".</p>             </td>             <td class="code">               <div class="highlight"><pre></pre></div>             </td>           </tr>                               <tr id="section-61">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-61">&#182;</a>               </div>               <pre><code> {get: [obj, key1, key2, ...]}
+</code></pre>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;get&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">get</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">e</span><span class="p">,</span> <span class="nx">i</span><span class="p">)</span> <span class="p">{</span>
+            <span class="kd">var</span> <span class="nx">ce</span> <span class="o">=</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">e</span><span class="p">);</span>
+            <span class="k">return</span> <span class="p">(</span><span class="nx">i</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="o">?</span> <span class="p">(</span><span class="s1">&#39;[&#39;</span><span class="o">+</span><span class="nx">ce</span><span class="o">+</span><span class="s1">&#39;]&#39;</span><span class="p">)</span> <span class="o">:</span> <span class="nx">ce</span><span class="p">);</span>
+          <span class="p">}).</span><span class="nx">join</span><span class="p">(</span><span class="s1">&#39;&#39;</span><span class="p">);</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-62">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-62">&#182;</a>               </div>               <pre><code> {put: [obj, key1, key2, ...], value: val}
+</code></pre>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;put&#39;</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">put</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">String</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="s1">&#39;(&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">put</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39; = &#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">value</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;)&#39;</span><span class="p">;</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="k">if</span> <span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">put</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Array</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="s1">&#39;(&#39;</span> 
+            <span class="o">+</span> <span class="nx">lookupSymbol</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="s1">&#39;get&#39;</span><span class="p">)(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">put</span><span class="p">)</span> 
+            <span class="o">+</span> <span class="s1">&#39; = &#39;</span> 
+            <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">.</span><span class="nx">value</span><span class="p">)</span> 
+            <span class="o">+</span> <span class="s1">&#39;)&#39;</span><span class="p">;</span>
+    <span class="p">}</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-63">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-63">&#182;</a>               </div>               <h3>Resolving power differences</h3>
+
+<p>There is a asymmery between lambda and macro that is uncomfortable.
+It is that using a lambda always requires its arguments to be 
+wrapped into an array (other than keywords) whereas macros are able
+to work with free forms better. Ideally, they shouldn't have differences
+in form at usage time and should be able to work with all forms. 
+One simple solution to this is to auto-promote single non-array 
+arguments into one-element arrays at call time. We patch compile_apply 
+to resolve this.</p>
+
+<p>With this patch, you can have the following lambda -</p>
+
+<pre><code> {let: {ruler: {lambda: ["arg"],
+                 body: [{if: "keywords.double_rule",
+                         then: {display: {$: "================="}}
+                         else: {display: {$: "-----------------"}}},
+                        {display: "arg"}]}} 
+     ...}
+</code></pre>
+
+<p>which can be called like this -</p>
+
+<pre><code> {ruler: {$: "An important message"}, double_rule: true}
+</code></pre>
+
+<p>and "applied" like this -</p>
+
+<pre><code> {apply: "ruler", 
+     args: {list: [{$: "An important message"}]}, 
+     keywords: {table: {double_rule: true}}}
+</code></pre>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">var</span> <span class="nx">compile_apply</span> <span class="o">=</span> <span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">prevCompileApply</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">op</span><span class="p">,</span> <span class="nx">jexpr</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kd">var</span> <span class="nx">opname</span> <span class="o">=</span> <span class="nx">operatorName</span><span class="p">(</span><span class="nx">jexpr</span><span class="p">);</span>
+        <span class="kd">var</span> <span class="nx">head</span> <span class="o">=</span> <span class="nx">jexpr</span><span class="p">[</span><span class="nx">opname</span><span class="p">];</span>
+        <span class="k">if</span> <span class="p">(</span><span class="nx">head</span> <span class="o">&amp;&amp;</span> <span class="nx">head</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Array</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="nx">prevCompileApply</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">op</span><span class="p">,</span> <span class="nx">jexpr</span><span class="p">);</span> <span class="c1">// Safe. Old behaviour applies.</span>
+        <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+            <span class="nx">jexpr</span><span class="p">[</span><span class="nx">opname</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="nx">jexpr</span><span class="p">[</span><span class="nx">opname</span><span class="p">]];</span> <span class="cm">/* Transform the main argument into a </span>
+<span class="cm">                                              * one-element array.</span>
+<span class="cm">                                              * HACK: We hack this by destructively modifying </span>
+<span class="cm">                                              * jexpr since the next time around we won&#39;t then </span>
+<span class="cm">                                              * get into this branch.</span>
+<span class="cm">                                              */</span>
+            <span class="k">return</span> <span class="nx">prevCompileApply</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">op</span><span class="p">,</span> <span class="nx">jexpr</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">};</span>
+<span class="p">}(</span><span class="nx">compile_apply</span><span class="p">));</span>
+
+<span class="nx">Prim</span><span class="p">.</span><span class="nx">run</span><span class="p">({</span><span class="nx">let</span><span class="o">:</span> <span class="p">{</span><span class="nx">ruler</span><span class="o">:</span> <span class="p">{</span><span class="nx">lambda</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;arg&quot;</span><span class="p">],</span>
+                        <span class="nx">body</span><span class="o">:</span> <span class="p">[{</span><span class="k">if</span><span class="o">:</span> <span class="s2">&quot;keywords.double_rule&quot;</span><span class="p">,</span>
+                                <span class="nx">then</span><span class="o">:</span> <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="p">{</span><span class="nx">$</span><span class="o">:</span> <span class="s2">&quot;=======================&quot;</span><span class="p">}},</span>
+                                <span class="k">else</span><span class="o">:</span> <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="p">{</span><span class="nx">$</span><span class="o">:</span> <span class="s2">&quot;-----------------------&quot;</span><span class="p">}}},</span>
+                               <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="s2">&quot;arg&quot;</span><span class="p">}]}},</span>
+           <span class="k">in</span><span class="o">:</span> <span class="p">[{</span><span class="nx">ruler</span><span class="o">:</span> <span class="p">{</span><span class="nx">$</span><span class="o">:</span> <span class="s2">&quot;An important message!&quot;</span><span class="p">},</span> <span class="nx">double_rule</span><span class="o">:</span> <span class="kc">true</span><span class="p">}]});</span></pre></div>             </td>           </tr>                               <tr id="section-64">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-64">&#182;</a>               </div>               <p>This uniformity lets us turn 'display' into a function much more simply!</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="s1">&#39;display&#39;</span><span class="p">,</span> <span class="s1">&#39;console.log&#39;</span><span class="p">);</span></pre></div>             </td>           </tr>                               <tr id="section-65">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-65">&#182;</a>               </div>               <p>Can we turn map/reduce/filter into functions as well?
+This looks possible, but I'm not sure about the resulting
+efficiency, so I'll leave them as macros for now and leave
+it to YOU to figure that out.</p>
+
+<pre><code> define(Prim, 'map', '(function (fn) { return this.list.map(fn); })');
+ define(Prim, 'reduce', '(function (fn) { return this.list.reduce(fn, this.init); })');
+ define(Prim, 'filter', '(function (fn) { return this.list.filter(fn); })');
+</code></pre>
+
+<p>Many others that we've written as macros should similarly be
+expressed as functions .. except for such runtime performance considerations.
+The disadvantage to how we've been doing this up to here, is
+that we cannot use the macros with "apply" in a program. That's
+a pretty BIG disadvantage, but I'm waving my hands and saying
+"you can always wrap a lambda around it" :)</p>
+
+<p>Have fun!</p>             </td>             <td class="code">               <div class="highlight"><pre></pre></div>             </td>           </tr>                               <tr id="section-66">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-66">&#182;</a>               </div>               <h2>A runtime environment?</h2>
+
+<p>So far, we don't have the notion of a runtime and all "functions"
+are actually macros and all is not well in this world just yet.
+We need some way to provide an environment that exposes symbol
+bindings to some piece of compiled code that we then evaluate
+using eval().</p>
+
+<p>We use a very simple model of a language runtime - which is a
+function that takes in a piece of compiled code and evaluates
+it using eval! The function is free to introduce new bindings
+in its local environment which then become accessible to eval.
+In other words, we just treat "eval" itself as a runtime.</p>
+
+<p>Here is a sample runtime that redefines "map", "reduce"
+and "filter" as functions instead of the macros that we defined
+them to be. What is returned from a call to the runtime is
+a compiled Javascript function, which when you call will result
+in the expression being evaluated. This returned function is
+of the form -
+     function (param) { return something; }
+and you can pass in any object for the "param". The expression
+you supply will be able to safely access this object as the 
+direct symbol "param". If you omit this argument, then accessing
+"param" in your expression will result in "undefined".</p>
+
+<p>Take a look at the sample function definitions. They access
+the regular arguments through the usual JS arguments and access
+the keyword argument provided through "this".</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">hofRT</span><span class="p">(</span><span class="nx">parentEnv</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+
+    <span class="kd">var</span> <span class="nx">__runtime__</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="nx">map</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">fn</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="k">this</span><span class="p">.</span><span class="nx">list</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="nx">fn</span><span class="p">);</span>
+        <span class="p">},</span>
+
+        <span class="nx">reduce</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">fn</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="k">this</span><span class="p">.</span><span class="nx">list</span><span class="p">.</span><span class="nx">reduce</span><span class="p">(</span><span class="nx">fn</span><span class="p">,</span> <span class="k">this</span><span class="p">.</span><span class="nx">init</span><span class="p">);</span>
+        <span class="p">},</span>
+
+        <span class="nx">filter</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">fn</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="k">this</span><span class="p">.</span><span class="nx">list</span><span class="p">.</span><span class="nx">filter</span><span class="p">(</span><span class="nx">fn</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">};</span>
+
+    <span class="kd">var</span> <span class="nx">env</span> <span class="o">=</span> <span class="nx">subenv</span><span class="p">(</span><span class="nx">parentEnv</span><span class="p">);</span>
+
+    <span class="nb">Object</span><span class="p">.</span><span class="nx">keys</span><span class="p">(</span><span class="nx">__runtime__</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">fn</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">define</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">fn</span><span class="p">,</span> <span class="s2">&quot;__runtime__.&quot;</span> <span class="o">+</span> <span class="nx">fn</span><span class="p">);</span>
+    <span class="p">});</span>
+
+    <span class="k">return</span> <span class="nb">eval</span><span class="p">(</span><span class="s1">&#39;(function (&#39;</span> <span class="o">+</span> <span class="nx">newvar</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="s1">&#39;param&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;) { &#39;</span>
+                    <span class="o">+</span> <span class="s1">&#39;return (&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;);&#39;</span>
+                    <span class="o">+</span> <span class="s1">&#39;})&#39;</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Testing map function in hofRT..&quot;</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">hofRT</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="p">{</span><span class="nx">map</span><span class="o">:</span> <span class="p">{</span><span class="nx">lambda</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">],</span> <span class="nx">body</span><span class="o">:</span> <span class="p">{</span><span class="nx">table</span><span class="o">:</span> <span class="p">{</span><span class="nx">x</span><span class="o">:</span> <span class="s2">&quot;x&quot;</span><span class="p">}}},</span> 
+                         <span class="nx">list</span><span class="o">:</span> <span class="p">{</span><span class="nx">list</span><span class="o">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">]}})());</span></pre></div>             </td>           </tr>                               <tr id="section-67">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-67">&#182;</a>               </div>               <p>The pattern expressed in hofRT can be encapsulated as a generic thing where
+you have a "runtime maker" function to which you pass in an object
+containing the definitions you want to make visible when running the
+code and you get back a function that can run expressions with those
+definitions. In this case, we make it so that calling the returned
+runtime function with an expression does not evaluate it like eval
+does, but compiles it and returns the compiled result as a function
+that you can then call as many times as you want.</p>
+
+<p>So the calling sequence goes like this --</p>
+
+<pre><code> var rt = J.runtime({...definitions...});
+ var proc = rt({...jexpr...});
+ proc(param1);
+ proc(param2);
+ ...
+</code></pre>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">runtime</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">definitions</span><span class="p">)</span> <span class="p">{</span>
+ 
+    <span class="kd">var</span> <span class="nx">rtenv</span> <span class="o">=</span> <span class="nx">subenv</span><span class="p">(</span><span class="nx">env</span><span class="p">);</span> <span class="c1">// New compiler env holds the definitions.</span>
+    <span class="nb">Object</span><span class="p">.</span><span class="nx">keys</span><span class="p">(</span><span class="nx">definitions</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">fn</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">define</span><span class="p">(</span><span class="nx">rtenv</span><span class="p">,</span> <span class="nx">fn</span><span class="p">,</span> <span class="s1">&#39;runtime$&#39;</span> <span class="o">+</span> <span class="nx">rtenv</span><span class="p">.</span><span class="nx">id</span> <span class="o">+</span> <span class="s1">&#39;$.&#39;</span> <span class="o">+</span> <span class="nx">fn</span><span class="p">);</span>
+    <span class="p">});</span>
+
+    <span class="k">return</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">expr</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kd">var</span> <span class="nx">env</span> <span class="o">=</span> <span class="nx">subenv</span><span class="p">(</span><span class="nx">rtenv</span><span class="p">);</span> <span class="c1">// Make a new one so that each run is independent.</span>
+
+        <span class="kd">var</span> <span class="nx">__runtime__</span> <span class="o">=</span> <span class="nx">definitions</span><span class="p">;</span>  <span class="c1">// Remember the definitions.</span>
+
+        <span class="k">return</span> <span class="nb">eval</span><span class="p">(</span><span class="s1">&#39;(function (&#39;</span> <span class="o">+</span> <span class="nx">newvar</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="s1">&#39;param&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;) {&#39;</span>
+                        <span class="o">+</span> <span class="s1">&#39;var runtime$&#39;</span> <span class="o">+</span> <span class="nx">rtenv</span><span class="p">.</span><span class="nx">id</span> <span class="o">+</span> <span class="s1">&#39;$ = __runtime__;&#39;</span>
+                        <span class="o">+</span> <span class="s1">&#39;return (&#39;</span> <span class="o">+</span> <span class="nx">compile</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">expr</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;);&#39;</span>
+                        <span class="o">+</span> <span class="s1">&#39;})&#39;</span><span class="p">);</span>
+    <span class="p">};</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-68">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-68">&#182;</a>               </div>               <h2>Standard library</h2>             </td>             <td class="code">               <div class="highlight"><pre></pre></div>             </td>           </tr>                               <tr id="section-69">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-69">&#182;</a>               </div>               <p>With the above notion of runtime, we can define a "standard library"
+that implements as functions some of what we wrote above as macros.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">var</span> <span class="nx">standardLibrary</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="nx">display</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">thing</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">thing</span><span class="p">);</span>
+        <span class="k">return</span> <span class="nx">thing</span><span class="p">;</span>
+    <span class="p">},</span>
+
+    <span class="nx">from</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">fromIx</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kd">var</span> <span class="nx">step</span> <span class="o">=</span> <span class="k">this</span><span class="p">.</span><span class="nx">step</span> <span class="o">===</span> <span class="kc">undefined</span> <span class="o">?</span> <span class="mi">1</span> <span class="o">:</span> <span class="k">this</span><span class="p">.</span><span class="nx">step</span><span class="p">;</span>
+        <span class="kd">var</span> <span class="nx">toIx</span> <span class="o">=</span> <span class="k">this</span><span class="p">.</span><span class="nx">to</span> <span class="o">===</span> <span class="kc">undefined</span> <span class="o">?</span> <span class="p">(</span><span class="nx">fromIx</span> <span class="o">+</span> <span class="nx">step</span> <span class="o">*</span> <span class="mi">1</span><span class="nx">e16</span><span class="p">)</span> <span class="o">:</span> <span class="k">this</span><span class="p">.</span><span class="nx">to</span><span class="p">;</span>
+        <span class="kd">var</span> <span class="nx">i</span> <span class="o">=</span> <span class="nx">fromIx</span><span class="p">;</span>
+
+        <span class="k">return</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">reset</span><span class="p">)</span> <span class="p">{</span>
+            <span class="kd">var</span> <span class="nx">result</span><span class="p">;</span>
+
+            <span class="k">if</span> <span class="p">(</span><span class="nx">reset</span><span class="p">)</span> <span class="p">{</span>
+                <span class="nx">i</span> <span class="o">=</span> <span class="nx">fromIx</span><span class="p">;</span>
+            <span class="p">}</span>
+
+            <span class="k">if</span> <span class="p">(</span><span class="nx">step</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="o">?</span> <span class="p">(</span><span class="nx">i</span> <span class="o">&lt;</span> <span class="nx">toIx</span><span class="p">)</span> <span class="o">:</span> <span class="p">(</span><span class="nx">i</span> <span class="o">&gt;</span> <span class="nx">toIx</span><span class="p">))</span> <span class="p">{</span>
+                <span class="nx">result</span> <span class="o">=</span> <span class="nx">i</span><span class="p">;</span>
+                <span class="nx">i</span> <span class="o">+=</span> <span class="nx">step</span><span class="p">;</span>
+                <span class="k">return</span> <span class="nx">result</span><span class="p">;</span>
+            <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+                <span class="k">return</span> <span class="kc">undefined</span><span class="p">;</span> <span class="c1">// Indicates end of iteration.</span>
+            <span class="p">}</span>
+        <span class="p">};</span>
+    <span class="p">},</span>
+
+    <span class="k">in</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">arr</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kd">var</span> <span class="nx">step</span> <span class="o">=</span> <span class="k">this</span><span class="p">.</span><span class="nx">step</span> <span class="o">===</span> <span class="kc">undefined</span> <span class="o">?</span> <span class="mi">1</span> <span class="o">:</span> <span class="k">this</span><span class="p">.</span><span class="nx">step</span><span class="p">;</span>
+        <span class="kd">var</span> <span class="nx">toIx</span> <span class="o">=</span> <span class="k">this</span><span class="p">.</span><span class="nx">to</span> <span class="o">===</span> <span class="kc">undefined</span> <span class="o">?</span> <span class="p">(</span><span class="nx">step</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="o">?</span> <span class="p">(</span><span class="nx">fromIx</span> <span class="o">+</span> <span class="nx">arr</span><span class="p">.</span><span class="nx">length</span><span class="p">)</span> <span class="o">:</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">:</span> <span class="k">this</span><span class="p">.</span><span class="nx">to</span><span class="p">;</span>
+        <span class="kd">var</span> <span class="nx">i</span> <span class="o">=</span> <span class="nx">fromIx</span><span class="p">;</span>
+
+        <span class="k">return</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">reset</span><span class="p">)</span> <span class="p">{</span>
+            <span class="kd">var</span> <span class="nx">resultIx</span><span class="p">;</span>
+
+            <span class="k">if</span> <span class="p">(</span><span class="nx">reset</span><span class="p">)</span> <span class="p">{</span>
+                <span class="nx">i</span> <span class="o">=</span> <span class="nx">fromIx</span><span class="p">;</span>
+            <span class="p">}</span>
+
+            <span class="k">if</span> <span class="p">(</span><span class="nx">step</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="o">?</span> <span class="p">(</span><span class="nx">i</span> <span class="o">&lt;</span> <span class="nx">toIx</span><span class="p">)</span> <span class="o">:</span> <span class="p">(</span><span class="nx">i</span> <span class="o">&gt;</span> <span class="nx">toIx</span><span class="p">))</span> <span class="p">{</span>
+                <span class="nx">resultIx</span> <span class="o">=</span> <span class="nx">i</span><span class="p">;</span>
+                <span class="nx">i</span> <span class="o">+=</span> <span class="nx">step</span><span class="p">;</span>
+                <span class="k">return</span> <span class="nx">arr</span><span class="p">[</span><span class="nx">resultIx</span><span class="p">];</span>
+            <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+                <span class="k">return</span> <span class="kc">undefined</span><span class="p">;</span> <span class="c1">// Indicates end of iteration.</span>
+            <span class="p">}</span>
+        <span class="p">};</span>
+    <span class="p">},</span>
+
+    <span class="nx">map</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">fn</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="k">this</span><span class="p">.</span><span class="nx">list</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="nx">fn</span><span class="p">);</span>
+    <span class="p">},</span>
+
+    <span class="nx">reduce</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">fn</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="k">this</span><span class="p">.</span><span class="nx">list</span><span class="p">.</span><span class="nx">reduce</span><span class="p">(</span><span class="nx">fn</span><span class="p">,</span> <span class="k">this</span><span class="p">.</span><span class="nx">init</span><span class="p">);</span>
+    <span class="p">},</span>
+
+    <span class="nx">filter</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">fn</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="k">this</span><span class="p">.</span><span class="nx">list</span><span class="p">.</span><span class="nx">filter</span><span class="p">(</span><span class="nx">fn</span><span class="p">);</span>
+    <span class="p">}</span>
+<span class="p">};</span></pre></div>             </td>           </tr>                               <tr id="section-70">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-70">&#182;</a>               </div>               <p>... but then we'll need some way of combining multiple
+such definitions lists into a single one before we can use
+the Env.prototype.runtime call to make a runtime. We'll also
+need to insert the standard definitions before any custom
+definitions are loaded. Let's therefore patch the runtime function 
+to accept multiple definitions objects and merge them all into a 
+single pile before making a runtime.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">runtime</span> <span class="o">=</span> <span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">runtime</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kd">var</span> <span class="nx">definitions</span> <span class="o">=</span> <span class="nx">copyValues</span><span class="p">(</span><span class="nx">standardLibrary</span><span class="p">,</span> <span class="p">{});</span>
+        <span class="nx">copyValues</span><span class="p">(</span><span class="nb">Array</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">slice</span><span class="p">.</span><span class="nx">call</span><span class="p">(</span><span class="nx">arguments</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="nx">definitions</span><span class="p">);</span>
+        <span class="k">return</span> <span class="nx">runtime</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">definitions</span><span class="p">);</span>
+    <span class="p">};</span>
+<span class="p">}(</span><span class="nx">runtime</span><span class="p">))</span>
+
+<span class="kd">function</span> <span class="nx">copyValues</span><span class="p">(</span><span class="nx">source</span><span class="p">,</span> <span class="nx">target</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">source</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Array</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">source</span><span class="p">.</span><span class="nx">forEach</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">d</span><span class="p">)</span> <span class="p">{</span>
+            <span class="nx">copyValues</span><span class="p">(</span><span class="nx">d</span><span class="p">,</span> <span class="nx">target</span><span class="p">);</span>
+        <span class="p">});</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="k">if</span> <span class="p">(</span><span class="nx">source</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Object</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nb">Object</span><span class="p">.</span><span class="nx">keys</span><span class="p">(</span><span class="nx">source</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">k</span><span class="p">)</span> <span class="p">{</span>
+            <span class="nx">target</span><span class="p">[</span><span class="nx">k</span><span class="p">]</span> <span class="o">=</span> <span class="nx">source</span><span class="p">[</span><span class="nx">k</span><span class="p">];</span>
+        <span class="p">});</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="k">if</span> <span class="p">(</span><span class="nx">source</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Function</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">source</span><span class="p">(</span><span class="nx">target</span><span class="p">);</span> <span class="cm">/* When a function is passed, I pass it the target</span>
+<span class="cm">                         * and let it deal with inserting primitives. That</span>
+<span class="cm">                         * way, the function can make use of what was defined</span>
+<span class="cm">                         * before it was called, such as the standardLibrary.</span>
+<span class="cm">                         */</span>
+                        
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="nx">target</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Testing standardLibrary..&quot;</span><span class="p">);</span>
+<span class="nx">runtime</span><span class="p">(</span><span class="nx">Prim</span><span class="p">)(</span>
+        <span class="p">{</span><span class="nx">let</span><span class="o">:</span> <span class="p">{},</span>
+            <span class="k">in</span><span class="o">:</span> <span class="p">[{</span><span class="nx">display</span><span class="o">:</span> <span class="p">{</span><span class="nx">map</span><span class="o">:</span> <span class="p">{</span><span class="nx">lambda</span><span class="o">:</span> <span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">],</span> <span class="nx">body</span><span class="o">:</span> <span class="p">{</span><span class="nx">table</span><span class="o">:</span> <span class="p">{</span><span class="nx">x</span><span class="o">:</span> <span class="s2">&quot;x&quot;</span><span class="p">}}},</span> 
+                            <span class="nx">list</span><span class="o">:</span> <span class="p">{</span><span class="nx">list</span><span class="o">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">]}}},</span>
+                 <span class="p">{</span><span class="nx">display</span><span class="o">:</span> <span class="p">{</span><span class="k">for</span><span class="o">:</span> <span class="p">{</span><span class="nx">x</span><span class="o">:</span> <span class="p">{</span><span class="nx">from</span><span class="o">:</span> <span class="mi">1</span><span class="p">,</span> <span class="nx">to</span><span class="o">:</span> <span class="mi">10</span><span class="p">}},</span> <span class="nx">expr</span><span class="o">:</span> <span class="p">{</span><span class="nx">table</span><span class="o">:</span> <span class="p">{</span><span class="nx">x</span><span class="o">:</span> <span class="s2">&quot;x&quot;</span><span class="p">}}}}]}</span>
+        <span class="p">)();</span></pre></div>             </td>           </tr>                               <tr id="section-71">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-71">&#182;</a>               </div>               <h2>A <em>different</em> model of a runtime</h2>
+
+<p>Actually, I don't quite like the above model of the runtime, because
+I can't now compile code in one place and run it in 
+another place. To fix that, I need some way to indicate that
+a symbol whose value is unknown at compile time is expected to
+be resolved at runtime. That's most easily done by patching
+lookupSymbol. Note that lookupSymbol will <em>always</em> succeed now
+for syntactically valid symbols. Also, we use the "R_" prefix just
+so we don't walk all over the JS proprietary properties.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">lookupSymbol</span> <span class="o">=</span> <span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">oldLookupSymbol</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">symRE</span> <span class="o">=</span> <span class="sr">/^[a-zA-Z_\$][a-zA-Z0-9_\.\$]*$/</span><span class="p">;</span>
+    <span class="k">return</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">sym</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">oldLookupSymbol</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">sym</span><span class="p">)</span> 
+                <span class="o">||</span> <span class="p">(</span><span class="nx">symRE</span><span class="p">.</span><span class="nx">test</span><span class="p">(</span><span class="nx">sym</span><span class="p">)</span> <span class="o">?</span> <span class="p">(</span><span class="s1">&#39;__jexpr_runtime__.R_&#39;</span> <span class="o">+</span> <span class="nx">sym</span><span class="p">)</span> <span class="o">:</span> <span class="kc">undefined</span><span class="p">);</span>
+    <span class="p">};</span>
+<span class="p">}(</span><span class="nx">lookupSymbol</span><span class="p">));</span></pre></div>             </td>           </tr>                               <tr id="section-72">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-72">&#182;</a>               </div>               <p>... then I need to define a top level block compiler that will
+do the necessary wrapping.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">compile_to_js</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">exprArr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="s1">&#39;(function (__jexpr_runtime__, &#39;</span> <span class="o">+</span> <span class="nx">newvar</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="s1">&#39;param&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;) {&#39;</span>
+                <span class="o">+</span> <span class="s1">&#39;return (&#39;</span> <span class="o">+</span> <span class="nx">compile_args</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">exprArr</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;);&#39;</span>
+                <span class="o">+</span> <span class="s1">&#39;})&#39;</span><span class="p">;</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-73">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-73">&#182;</a>               </div>               <p>Now the runtime building can be independent of
+the compilation environment which may no longer exist. 
+Much cleaner!</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">makeRuntime</span><span class="p">()</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">definitions</span> <span class="o">=</span> <span class="nx">copyValues</span><span class="p">(</span><span class="nx">standardLibrary</span><span class="p">,</span> <span class="p">{});</span>
+    <span class="nx">copyValues</span><span class="p">(</span><span class="nb">Array</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">slice</span><span class="p">.</span><span class="nx">call</span><span class="p">(</span><span class="nx">arguments</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="nx">definitions</span><span class="p">);</span>
+    <span class="kd">var</span> <span class="nx">prefixed</span> <span class="o">=</span> <span class="p">{};</span>
+    <span class="nb">Object</span><span class="p">.</span><span class="nx">keys</span><span class="p">(</span><span class="nx">definitions</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">k</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">prefixed</span><span class="p">[</span><span class="s1">&#39;R_&#39;</span> <span class="o">+</span> <span class="nx">k</span><span class="p">]</span> <span class="o">=</span> <span class="nx">definitions</span><span class="p">[</span><span class="nx">k</span><span class="p">];</span>
+    <span class="p">});</span>
+    <span class="k">return</span> <span class="nx">prefixed</span><span class="p">;</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-74">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-74">&#182;</a>               </div>               <p>Now the calling sequence is -</p>
+
+<pre><code> eval(compile_to_js(env, [expr..]))(makeRuntime(...), {...params...})
+</code></pre>
+
+<p>Though this DRAMATICALLY alters how a runtime is defined, the
+actual definition of the runtime such as <code>standardLibrary</code> remains
+the same.</p>             </td>             <td class="code">               <div class="highlight"><pre></pre></div>             </td>           </tr>                               <tr id="section-75">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-75">&#182;</a>               </div>               <p>Undefine the definitions moved to the standardLibrary so that
+they can be overridden by user runtime definitions.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nb">Object</span><span class="p">.</span><span class="nx">keys</span><span class="p">(</span><span class="nx">standardLibrary</span><span class="p">).</span><span class="nx">forEach</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">key</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nx">define</span><span class="p">(</span><span class="nx">Prim</span><span class="p">,</span> <span class="nx">key</span><span class="p">,</span> <span class="kc">undefined</span><span class="p">);</span>
+<span class="p">});</span></pre></div>             </td>           </tr>                               <tr id="section-76">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-76">&#182;</a>               </div>               <p>Math functions are safe.
+FIXME: ... but actually not. Math.constructor and such stuff
+is now exposed to the language! This is actually a general
+problem with allowing the dot syntax without restrictions.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="nx">standardLibrary</span><span class="p">.</span><span class="nb">Math</span> <span class="o">=</span> <span class="nb">Math</span><span class="p">;</span></pre></div>             </td>           </tr>                               <tr id="section-77">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-77">&#182;</a>               </div>               <h2>Limiting exposure in the exports</h2>
+
+<p>I'd like the ability to be very very selective about what 
+gets exposed in the environment so that at some point I can
+safely expose compilation environments at runtime. To do this,
+I create a "frozen wrapper" around a given environment that poses
+no extra running overhead for the internal machinery.</p>
+
+<p>The exposed functionality is as follows -</p>
+
+<p><code>J</code> is the name of the exposed variable containing this API.</p>
+
+<p><code>J.subenv()</code> makes a new environment with J as its parent. That new
+sub-environment also gets this very same API.</p>
+
+<p><code>J.option(name, [value])</code> gets/sets environment options. Currently the
+only option exposed is 'unsafe' which can be set to true/false to permit
+unsafe expressions at compilation time.</p>
+
+<p><code>J.define(name, value)</code> puts a symbol definition into the compilation
+environment. Defining symbols in a sub-environment does not affect
+symbol lookup in parent environments.</p>
+
+<p><code>J.compile_to_js(expr,...)</code> Returns the compiled Javascript source for the
+given expression as a string. Evaluating this string will give you a function 
+of the form --</p>
+
+<pre><code> function (runtime, param) {..}
+</code></pre>
+
+<p><code>J.compile(expr,...)</code> Returns the compiled closure that you can pass to <code>J.eval</code>,
+or call yourself.</p>
+
+<p><code>J.runtime(defns...)</code> will collect all the supplied runtime definitions
+into a single object and return it. The <code>standardLibrary</code> is included
+by default.</p>
+
+<p>Specifying definitions has a lot of flexibility -</p>
+
+<ol>
+<li>You can give a table of name->defn mappings,</li>
+<li>You can give a function(table) which is then
+applied to the table of already loaded definitions
+so you can add new ones that make use of older ones.</li>
+<li>You can pass an array of such tables or functions
+and it steps through such arrays recursively. This
+helps with "componentizing" the runtime.</li>
+</ol>
+
+<p><code>J.eval(expr, runtime, param)</code> wraps it all together. You can either
+pass in a compiled expression (as a closure in the form returned by
+<code>J.compile(expr)</code> or a j-expression which will then be compiled and
+evaluated. If given  a j-expression, this is equivalent to -
+     eval(J.compile(expr))(runtime, param)</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">freeze</span><span class="p">(</span><span class="nx">env</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nb">Object</span><span class="p">.</span><span class="nx">freeze</span><span class="p">({</span>
+        <span class="nx">subenv</span><span class="o">:</span> <span class="kd">function</span> <span class="p">()</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="nx">freeze</span><span class="p">(</span><span class="nx">subenv</span><span class="p">(</span><span class="nx">env</span><span class="p">));</span>
+        <span class="p">},</span>
+        <span class="nx">option</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">optName</span><span class="p">,</span> <span class="nx">optVal</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="p">(</span><span class="nx">arguments</span><span class="p">.</span><span class="nx">length</span> <span class="o">===</span> <span class="mi">1</span> 
+                        <span class="o">?</span> <span class="nx">env</span><span class="p">.</span><span class="nx">options</span><span class="p">[</span><span class="nx">optName</span><span class="p">]</span> 
+                        <span class="o">:</span> <span class="p">(</span><span class="nx">env</span><span class="p">.</span><span class="nx">options</span><span class="p">[</span><span class="nx">optName</span><span class="p">]</span> <span class="o">=</span> <span class="nx">optVal</span><span class="p">));</span>
+        <span class="p">},</span>
+        <span class="nx">define</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">name</span><span class="p">,</span> <span class="nx">value</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="nx">define</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nx">name</span><span class="p">,</span> <span class="nx">value</span><span class="p">);</span>
+        <span class="p">},</span>
+        <span class="nx">compile_to_js</span><span class="o">:</span> <span class="kd">function</span> <span class="p">()</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="nx">compile_to_js</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nb">Array</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">slice</span><span class="p">.</span><span class="nx">call</span><span class="p">(</span><span class="nx">arguments</span><span class="p">,</span> <span class="mi">0</span><span class="p">));</span>
+        <span class="p">},</span>
+        <span class="nx">compile</span><span class="o">:</span> <span class="kd">function</span> <span class="p">()</span> <span class="p">{</span>
+            <span class="k">return</span> <span class="nb">eval</span><span class="p">(</span><span class="nx">compile_to_js</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="nb">Array</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">slice</span><span class="p">.</span><span class="nx">call</span><span class="p">(</span><span class="nx">arguments</span><span class="p">,</span> <span class="mi">0</span><span class="p">)));</span>
+        <span class="p">},</span>
+        <span class="nx">runtime</span><span class="o">:</span> <span class="nx">makeRuntime</span><span class="p">,</span>
+        <span class="nb">eval</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">expr</span><span class="p">,</span> <span class="nx">runtime</span><span class="p">,</span> <span class="nx">param</span><span class="p">)</span> <span class="p">{</span>
+            <span class="nx">runtime</span> <span class="o">=</span> <span class="nx">runtime</span> <span class="o">||</span> <span class="nx">makeRuntime</span><span class="p">();</span>
+            <span class="nx">param</span> <span class="o">=</span> <span class="nx">param</span> <span class="o">||</span> <span class="p">{};</span>
+            <span class="k">if</span> <span class="p">(</span><span class="nx">expr</span><span class="p">.</span><span class="nx">constructor</span> <span class="o">===</span> <span class="nb">Function</span><span class="p">)</span> <span class="p">{</span>
+                <span class="k">return</span> <span class="nx">expr</span><span class="p">(</span><span class="nx">runtime</span><span class="p">,</span> <span class="nx">param</span><span class="p">);</span> <span class="c1">// Already a compiled expression.</span>
+            <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+                <span class="k">return</span> <span class="nb">eval</span><span class="p">(</span><span class="nx">compile_to_js</span><span class="p">(</span><span class="nx">env</span><span class="p">,</span> <span class="p">[</span><span class="nx">expr</span><span class="p">]))(</span><span class="nx">runtime</span><span class="p">,</span> <span class="nx">param</span><span class="p">);</span> <span class="c1">// Need to compile.</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">});</span>
+<span class="p">}</span></pre></div>             </td>           </tr>                               <tr id="section-78">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-78">&#182;</a>               </div>               <p>for debugging.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="kd">function</span> <span class="nx">show</span><span class="p">(</span><span class="nx">label</span><span class="p">,</span> <span class="nx">x</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">label</span> <span class="o">+</span> <span class="s1">&#39;:\t&#39;</span> <span class="o">+</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">x</span><span class="p">));</span>
+    <span class="k">return</span> <span class="nx">x</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="k">return</span> <span class="nx">freeze</span><span class="p">(</span><span class="nx">Prim</span><span class="p">);</span>
+
+<span class="p">}());</span></pre></div>             </td>           </tr>                               <tr id="section-79">             <td class="docs">               <div class="pilwrap">                 <a class="pilcrow" href="#section-79">&#182;</a>               </div>               <p>Are we in node.js? If so set the exports variable.
+Otherwise just shut up and return.</p>             </td>             <td class="code">               <div class="highlight"><pre><span class="k">try</span> <span class="p">{</span>
+    <span class="nx">module</span><span class="p">.</span><span class="nx">exports</span> <span class="o">=</span> <span class="nx">J</span><span class="p">;</span>
+<span class="p">}</span> <span class="k">catch</span> <span class="p">(</span><span class="nx">e</span><span class="p">)</span> <span class="p">{</span>
+<span class="p">}</span>
+
+</pre></div>             </td>           </tr>                </tbody>     </table>   </div> </body> </html> 
