@@ -1,0 +1,12 @@
+An attempt at using JSON to notate the abstract syntax tree
+of a language, thus yielding a language capable of natural 
+macros just like the lisp family.
+
+The current compiler implementation is written in "stream of
+thought" style. Works, but it isn't production code and intended
+as proof of concept.
+
+See [the jexpr docco docs](http://srikumarks.github.com/jexpr)
+for more info.
+
+
