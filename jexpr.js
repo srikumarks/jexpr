@@ -917,7 +917,7 @@ define(Prim, 'display', 'console.log');
 // the keyword argument provided through "this".
 function hofRT(parentEnv, expr) {
 
-    var __runtime__ = {
+    var defs = {
         map: function (fn) {
             return this.list.map(fn);
         },
@@ -933,13 +933,13 @@ function hofRT(parentEnv, expr) {
 
     var env = subenv(parentEnv);
 
-    Object.keys(__runtime__).forEach(function (fn) {
+    Object.keys(defs).forEach(function (fn) {
         define(env, fn, "__runtime__." + fn);
     });
 
-    return eval('(function (' + newvar(env, 'param') + ') { '
+    return eval('(function (__runtime__) { return (function (' + newvar(env, 'param') + ') { '
                     + 'return (' + compile(env, expr) + ');'
-                    + '})');
+                    + '}); })')(defs);
 }
 
 console.log("Testing map function in hofRT..");
@@ -973,12 +973,10 @@ function runtime(env, definitions) {
     return function (expr) {
         var env = subenv(rtenv); // Make a new one so that each run is independent.
 
-        var __runtime__ = definitions;  // Remember the definitions.
-
-        return eval('(function (' + newvar(env, 'param') + ') {'
+        return eval('(function (__runtime__) { return (function (' + newvar(env, 'param') + ') {'
                         + 'var runtime$' + rtenv.id + '$ = __runtime__;'
                         + 'return (' + compile(env, expr) + ');'
-                        + '})');
+                        + '}); })')(definitions);
     };
 }
 
