@@ -1,0 +1,8 @@
+apply (lambda msg body:
+        display "hello lambda world ..."
+        display msg
+        display keywords)
+
+    args: (list "planet earth rocks!")
+    keywords: (table (global "cooling ftw!"))
+

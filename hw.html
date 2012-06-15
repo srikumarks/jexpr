@@ -1,0 +1,19 @@
+<html>
+    <head>
+        <script type="application/x-jexpr">
+            document.write "hello there, world!<br/>"
+            // Simple example with array comprehension and
+            // where clause below. This is a comment.
+            document.write
+                for {x: in (list "a" "long" "time" "ago")} 
+                    expr: tie (list "(" x ")")
+                    where: {tie: fn x to: x.join "-"}
+        </script>
+        <!-- <script>J_enable_tests = true;</script> -->
+        <script src="jexpr.js"></script>
+    </head>
+    <body>
+    </body>
+</html>
+
+

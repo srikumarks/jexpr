@@ -1,12 +1,14 @@
-An attempt at using JSON to notate the abstract syntax tree
-of a language, thus yielding a language capable of natural 
-macros just like the lisp family.
+An attempt at using JSON to notate the abstract syntax tree of a language, thus
+yielding a language capable of natural macros just like the lisp family.
 
-The current compiler implementation is written in "stream of
-thought" style. Works, but it isn't production code and intended
-as proof of concept.
+The current compiler implementation is written in "stream of thought" style.
+Works, but it isn't production code and intended as proof of concept.
 
-See [the jexpr docco docs](http://srikumarks.github.com/jexpr)
-for more info.
+See [the jexpr docco docs](http://srikumarks.github.com/jexpr) for more info.
 
+The `node.js` script named `jx` can compile jexpr files into Javascript or run
+them directly. Run the script with no arguments for info on how to use it.
+
+The `jexpr.js` file can be script-included in a web page and it will scan and
+execute all the script tags with `type="application/x-jexpr"` attribute.
 
