@@ -10,15 +10,18 @@ if (process.argv.length <= 2) {
     process.stderr.write('Usage: jx file1.js file2.js ...\n');
     process.stderr.write('  Will run all the code in the given files.\n\n');
     process.stderr.write('Usage: jx -C file1.js file2.js ... > out.js\n');
-    process.stderr.write('  Will compile all the code in the given files\n')
+    process.stderr.write('  Will compile all the code in the given files\n');
     process.stderr.write('  and output the result to stdout.\n\n');
+    process.stderr.write('Usage: jx -P file1.js file2.js ... > out.js\n');
+    process.stderr.write('  Will parse all the code in the given files and\n');
+    process.stderr.write('  write it out as an array of expressions in JSON form.\n\n');
     process.stderr.write('Usage: jx file1.js -c file2.js file3.js ...\n');
     process.stderr.write('  Will run file1.js, file3.js, and others and \n');
     process.stderr.write('  then compile file2.js. Useful to load macros.\n');
     process.stderr.write('\nThe "-v" flag turns on verbose dumping of the parsed JSON.\n\n');
 } else {
-    var exprs_to_run = [], exprs_to_compile = [];
-    var compile_next = false, compile_reset = true;
+    var exprs_to_run = [], exprs_to_compile = [], all_exprs = [];
+    var compile_next = false, compile_reset = true, parse_only = false;
     process.argv.slice(2).forEach(function (f) {
         if (f === '-c') {
             compile_next = true;
@@ -27,6 +30,8 @@ if (process.argv.length <= 2) {
             compile_reset = false;
         } else if (f === '-v') {
             verbose = true;
+        } else if (f === '-P') {
+            parse_only = true;
         } else {
             var source = fs.readFileSync(f, 'utf8');
             var p = J.parse(source);
@@ -37,6 +42,7 @@ if (process.argv.length <= 2) {
                     console.log(JSON.stringify(expr));
                 }
                 exprs.push(expr);
+                all_exprs.push(expr);
             }
             if (compile_reset) {
                 compile_next = false;
@@ -44,11 +50,15 @@ if (process.argv.length <= 2) {
         }
     })
 
-    var rt = J.runtime();
-    if (exprs_to_run.length > 0) {
-        J.eval({do: exprs_to_run}, rt);
-    }
-    if (exprs_to_compile.length > 0) {
-        process.stdout.write(J.compile_to_js({do: exprs_to_compile}));
+    if (parse_only) {
+        process.stdout.write(JSON.stringify(all_exprs));
+    } else {
+        var rt = J.runtime();
+        if (exprs_to_run.length > 0) {
+            J.eval({do: exprs_to_run}, rt);
+        }
+        if (exprs_to_compile.length > 0) {
+            process.stdout.write(J.compile_to_js({do: exprs_to_compile}));
+        }
     }
 }
